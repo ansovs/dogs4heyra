@@ -33,6 +33,12 @@ from dogs4heyra.extract import fetch_breeds
 breeds = fetch_breeds()
 ```
 
+## Next steps
+
+- [ ] Set up the BigQuery warehouse: fill in `.dlt/secrets.toml` (copied
+      from `.dlt/secrets.toml.example`, not yet configured) with a real
+      GCP project + service account, then run `dogs4heyra-load`.
+
 ## Loading to a warehouse (dlt + BigQuery)
 
 ```bash
