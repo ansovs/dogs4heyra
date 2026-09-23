@@ -5,7 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 A small Python package that extracts dog breed data from The Dog API
-(`https://api.thedogapi.com/v1/breeds`) and writes it to JSON or CSV.
+(`https://api.thedogapi.com/v1/breeds`) and either writes it to JSON/CSV
+or loads it into a warehouse (BigQuery, via dlt).
 
 ## Commands
 
@@ -19,6 +20,11 @@ pip install -e ".[dev]"
 dogs4heyra-extract                  # writes breeds.json
 dogs4heyra-extract -o breeds.csv    # writes CSV instead
 
+# Load into a warehouse (dlt)
+pip install -e ".[warehouse]"
+dogs4heyra-load                     # loads into BigQuery (default)
+dogs4heyra-load --destination duckdb --dataset dog_breeds  # load locally instead
+
 # Tests
 pytest                              # full suite
 pytest tests/test_extract.py::test_write_csv_flattens_nested_fields  # single test
@@ -29,19 +35,29 @@ one). Set it via `DOG_API_KEY` env var or `--api-key` flag; get a free key
 at https://thedogapi.com. Tests do not need a real key — they mock HTTP
 calls with the `responses` library, so `pytest` works offline.
 
+BigQuery credentials go in `.dlt/secrets.toml` (gitignored; copy
+`.dlt/secrets.toml.example` and fill it in) — never committed.
+
 ## Architecture
 
-Single module: `src/dogs4heyra/extract.py`.
+Two entry points sharing one HTTP call:
 
-- `fetch_breeds()` — hits the API, returns the raw parsed JSON list (one
-  dict per breed, unmodified).
-- `_flatten()` — only used by the CSV path. The API's `weight`, `height`,
-  and `image` fields are nested dicts; this pulls them into flat columns
-  (`weight_imperial`, `weight_metric`, `image_url`, etc.) per `CSV_FIELDS`.
-  JSON output is *not* flattened — it's written as-is from the API.
-- `main()` — CLI entry point (`dogs4heyra-extract`). Picks JSON vs CSV from
-  `--format`, falling back to the `-o/--output` file extension.
+- `src/dogs4heyra/extract.py` — `fetch_breeds()` hits the API and returns
+  the raw parsed JSON list (one dict per breed, unmodified). `_flatten()`
+  (CSV path only) pulls the API's nested `weight`/`height`/`image` dicts
+  into flat columns per `CSV_FIELDS`; JSON output is written as-is,
+  un-flattened. `main()` is the `dogs4heyra-extract` CLI — picks JSON vs
+  CSV from `--format`, falling back to the `-o/--output` extension.
+- `src/dogs4heyra/pipeline.py` — wraps `fetch_breeds()` in a dlt
+  `@dlt.resource` (`breeds_resource`) and runs it through a dlt pipeline
+  (`write_disposition="replace"`, so each run overwrites the table rather
+  than appending). `main()` is the `dogs4heyra-load` CLI. dlt infers the
+  warehouse schema from the raw JSON automatically — no manual schema or
+  flattening needed here, unlike the CSV path in `extract.py`.
 
-If the API response shape changes (new/renamed fields), update
-`CSV_FIELDS` and `_flatten()` together — JSON output needs no changes
-since it passes the API payload through untouched.
+If the API response shape changes (new/renamed fields), only
+`CSV_FIELDS`/`_flatten()` in `extract.py` need updating — both the JSON
+output and the dlt pipeline pass the API payload through unmodified.
+
+Test coverage for the pipeline runs against local DuckDB (`tests/test_pipeline.py`),
+not BigQuery — no live credentials are needed for `pytest` to pass.

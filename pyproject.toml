@@ -15,10 +15,15 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "responses>=0.25",
+    "duckdb>=1.0",
+]
+warehouse = [
+    "dlt[bigquery]>=1.0",
 ]
 
 [project.scripts]
 dogs4heyra-extract = "dogs4heyra.extract:main"
+dogs4heyra-load = "dogs4heyra.pipeline:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
