@@ -12,8 +12,8 @@ or loads it into a warehouse (BigQuery, via dlt).
 
 ```bash
 # Setup (editable install with dev deps)
-python -m venv .venv
-source .venv/bin/activate
+python -m venv .venv.nosync
+source .venv.nosync/bin/activate
 pip install -e ".[dev]"
 
 # Run the extractor
@@ -37,6 +37,16 @@ calls with the `responses` library, so `pytest` works offline.
 
 BigQuery credentials go in `.dlt/secrets.toml` (gitignored; copy
 `.dlt/secrets.toml.example` and fill it in) — never committed.
+
+The venv is `.venv.nosync`, not `.venv`: this project lives under
+`~/Desktop`, which iCloud Drive sync may manage, and it re-hides pip's
+editable-install `.pth` file after syncing — Python 3.12+'s `site.py`
+silently skips hidden `.pth` files, breaking `import dogs4heyra` with no
+error message. `.nosync` is a naming convention iCloud sync respects to
+skip a folder. If this ever recurs (`ModuleNotFoundError: No module named
+'dogs4heyra'` despite a successful `pip install -e .`), check
+`ls -lO .venv.nosync/lib/*/site-packages/__editable__*.pth` for a `hidden`
+flag.
 
 ## Architecture
 

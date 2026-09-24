@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .venv/
+.venv.nosync/
 *.egg-info/
 build/
 dist/

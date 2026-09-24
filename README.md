@@ -5,10 +5,18 @@ Extracts dog breed data from [The Dog API](https://api.thedogapi.com/v1/breeds).
 ## Setup
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+python -m venv .venv.nosync
+source .venv.nosync/bin/activate
 pip install -e ".[dev]"
 ```
+
+The venv is named `.venv.nosync` rather than `.venv` because this project
+lives under `~/Desktop`, which iCloud Drive's "Desktop & Documents" sync
+may manage — the `.nosync` suffix is a convention iCloud sync respects to
+skip a folder. Without it, iCloud re-hides pip's editable-install `.pth`
+file after every sync, which breaks imports on Python 3.12+ (site.py
+silently skips hidden `.pth` files). If you move this project outside an
+iCloud-synced folder, a plain `.venv` works fine too.
 
 An API key is required for the `/breeds` endpoint. Get a free one at
 https://thedogapi.com and set it via:
