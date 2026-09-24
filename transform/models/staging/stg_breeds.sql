@@ -7,7 +7,7 @@ with source as (
 renamed as (
 
     select
-        safe_cast(id as int64) as breed_id,
+        id as breed_id,
         name as breed_name,
         breed_group,
         origin,
