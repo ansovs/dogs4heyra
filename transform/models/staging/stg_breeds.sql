@@ -37,6 +37,13 @@ renamed as (
         _dlt_id as raw_row_id
 
     from source
+    -- Belt-and-suspenders, not a fix for anything observed: the source
+    -- test on raw.breeds.name (sources.yml) is what actually catches a
+    -- null name loudly, in CI, before it ever reaches this filter. This
+    -- WHERE just keeps such a row out of the current-state model rather
+    -- than passing a half-populated breed downstream once that test has
+    -- already failed and someone's looking at it.
+    where name is not null
 
 )
 

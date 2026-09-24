@@ -11,3 +11,9 @@ sources:
     tables:
       - name: breeds
         description: One row per dog breed, as returned by The Dog API.
+        columns:
+          - name: name
+            data_tests:
+              - not_null:
+                  config:
+                    severity: error
