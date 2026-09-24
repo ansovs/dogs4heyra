@@ -7,7 +7,7 @@ with source as (
 renamed as (
 
     select
-        id as breed_id,
+        id as id,
         name as breed_name,
         breed_group,
         origin,
