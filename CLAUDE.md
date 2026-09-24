@@ -5,8 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 A small Python package that extracts dog breed data from The Dog API
-(`https://api.thedogapi.com/v1/breeds`) and either writes it to JSON/CSV
-or loads it into a warehouse (BigQuery, via dlt).
+(`https://api.thedogapi.com/v1/breeds`) and either writes it to JSON/CSV,
+loads it into a warehouse (BigQuery, via dlt), or transforms the loaded
+data (via dbt-core, in `transform/`).
 
 ## Commands
 
@@ -24,6 +25,12 @@ dogs4heyra-extract -o breeds.csv    # writes CSV instead
 pip install -e ".[warehouse]"
 dogs4heyra-load                     # loads into BigQuery (default)
 dogs4heyra-load --destination duckdb --dataset dog_breeds  # load locally instead
+
+# Transform with dbt
+pip install -e ".[transform]"
+eval "$(.venv.nosync/bin/python scripts/print_bq_env.py)"  # BQ_* env vars from .dlt/secrets.toml
+dbt run --project-dir transform --profiles-dir transform
+dbt test --project-dir transform --profiles-dir transform
 
 # Tests
 pytest                              # full suite
@@ -70,4 +77,32 @@ If the API response shape changes (new/renamed fields), only
 output and the dlt pipeline pass the API payload through unmodified.
 
 Test coverage for the pipeline runs against local DuckDB (`tests/test_pipeline.py`),
-not BigQuery — no live credentials are needed for `pytest` to pass.
+not BigQuery — no live credentials are needed for `pytest` to pass. That
+test pins `pipelines_dir` to `tmp_path`; without it, dlt persists local
+pipeline state under `~/.dlt/pipelines/<pipeline_name>` across test runs
+and can end up pointing at a stale, already-deleted pytest tmp folder
+from a previous run, breaking the test non-deterministically.
+
+`transform/` is a separate dbt-core project (own `dbt_project.yml`,
+`profiles.yml`, invoked with `--project-dir transform --profiles-dir
+transform`, not activated via `cd`). It treats `raw.breeds`
+(`dog_breeds.breeds` in BigQuery — the table `dogs4heyra-load` writes) as
+a dbt **source**: read-only, never written to or dropped, so it stays the
+full historical/reference layer. `stg_breeds`
+(`transform/models/staging/stg_breeds.sql`) is a view built on top of it
+in a separate `dog_breeds_staging` dataset — safe to rebuild or drop
+without touching raw. `profiles.yml` has no secrets in it (values come
+from `BQ_PROJECT_ID`/`BQ_CLIENT_EMAIL`/`BQ_PRIVATE_KEY` env vars via
+Jinja `env_var()`), so it's committed; `scripts/print_bq_env.py` derives
+those three env vars from `.dlt/secrets.toml` so credentials are entered
+once, not duplicated between dlt and dbt config.
+
+The API's numeric fields (life span, weight, height) are inconsistently
+formatted free text — plain ranges ("23-25"), decimals ("3.2-4.5"), and
+gender-split ranges ("Male: 25-30; Female: 20-25") all appear in the same
+column. `extract_min_number`/`extract_max_number`
+(`transform/macros/extract_number_range.sql`) handle all three by
+extracting every number in the string and taking min/max, rather than
+assuming one fixed pattern — an earlier version used a single regex
+anchored to the string start, which silently returned NULL for most
+gender-split rows.

@@ -24,6 +24,7 @@ def test_breeds_resource_loads_into_duckdb(tmp_path, monkeypatch):
             pipeline_name="test_dogs4heyra",
             destination="duckdb",
             dataset_name="dog_breeds",
+            pipelines_dir=str(tmp_path),
         )
         load_info = pipeline.run(breeds_resource())
 

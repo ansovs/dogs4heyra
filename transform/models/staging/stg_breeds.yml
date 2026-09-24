@@ -1,0 +1,17 @@
+version: 2
+
+models:
+  - name: stg_breeds
+    description: >
+      One row per breed, cleaned and typed from `raw.breeds`. Numeric
+      ranges (life span, weight, height) are parsed out of the API's
+      free-text fields into min/max columns.
+    columns:
+      - name: breed_id
+        description: Primary key, from The Dog API.
+        data_tests:
+          - unique
+          - not_null
+      - name: breed_name
+        data_tests:
+          - not_null

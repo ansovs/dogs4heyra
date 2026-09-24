@@ -13,3 +13,9 @@ breeds.csv
 *.duckdb
 *.duckdb.wal
 .dogs4heyra_pipeline/
+
+# dbt
+transform/target/
+transform/dbt_packages/
+transform/logs/
+transform/.user.yml

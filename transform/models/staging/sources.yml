@@ -1,0 +1,13 @@
+version: 2
+
+sources:
+  - name: raw
+    description: >
+      Data loaded by the dlt pipeline (`dogs4heyra-load`). This dataset is
+      the historical reference layer — dbt reads from it but never writes
+      to it or drops it.
+    database: "{{ env_var('BQ_PROJECT_ID') }}"
+    schema: dog_breeds
+    tables:
+      - name: breeds
+        description: One row per dog breed, as returned by The Dog API.
