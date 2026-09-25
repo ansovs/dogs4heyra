@@ -1,8 +1,11 @@
 """Load dog breed data into a warehouse using dlt.
 
 Defaults to BigQuery (free sandbox tier). Credentials are read from
-.dlt/secrets.toml (see .dlt/secrets.toml.example) or the standard
-dlt/BigQuery environment variables.
+.dlt/secrets.toml or the standard dlt/BigQuery environment variables.
+
+Each run appends a full snapshot rather than replacing the table, so raw
+accumulates history across runs. transform/models/staging/stg_breeds.sql
+collapses that history to one current-state row per breed.
 """
 
 from __future__ import annotations
@@ -15,7 +18,7 @@ import dlt
 from dogs4heyra.extract import fetch_breeds
 
 
-@dlt.resource(name="breeds", write_disposition="replace")
+@dlt.resource(name="breeds", write_disposition="append")
 def breeds_resource(api_key: str | None = None):
     yield fetch_breeds(api_key=api_key)
 

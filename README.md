@@ -45,19 +45,24 @@ breeds = fetch_breeds()
 
 ```bash
 pip install -e ".[warehouse]"
-cp .dlt/secrets.toml.example .dlt/secrets.toml   # fill in your BigQuery service account
 export DOG_API_KEY=your-key-here
 dogs4heyra-load
 ```
 
 This uses [dlt](https://dlthub.com) to load breed data into BigQuery's free
-sandbox tier (no billing account required). See `.dlt/secrets.toml.example`
-for setup steps (create a GCP project, a service account with BigQuery
-Data Editor + Job User roles, and a JSON key).
+sandbox tier (no billing account required). Credentials go in
+`.dlt/secrets.toml` (gitignored, not committed) — see `transform/profiles.yml`
+for the field names it expects (`project_id`, `client_email`, `private_key`
+under `[destination.bigquery.credentials]`); get them by creating a GCP
+project, a service account with BigQuery Data Editor + Job User roles, and
+a JSON key.
 
-Data lands in the `dog_breeds` dataset, table `breeds`. Override the
-destination/dataset with `dogs4heyra-load --destination duckdb --dataset dog_breeds`
-to load locally instead.
+Each run **appends** a full snapshot rather than replacing the table, so
+`dog_breeds.breeds` accumulates history across runs — the same breed can
+span many rows over time. `stg_breeds` (below) is what collapses that back
+to one current row per breed. Override the destination/dataset with
+`dogs4heyra-load --destination duckdb --dataset dog_breeds` to load locally
+instead.
 
 ## Transforming with dbt
 
@@ -74,11 +79,16 @@ dbt run --project-dir transform --profiles-dir transform
 dbt test --project-dir transform --profiles-dir transform
 ```
 
-`stg_breeds` (`transform/models/staging/stg_breeds.sql`) cleans and types
-the raw columns, and parses the API's free-text numeric fields (life
-span, weight, height — which mix plain ranges, decimals, and
-gender-split "Male: X-Y; Female: A-B" formats) into min/max columns via
-the `extract_min_number`/`extract_max_number` macros
+`stg_breeds` (`transform/models/staging/stg_breeds.sql`) collapses raw's
+full load history to **one current-state row per breed**: for each
+column, independently, the most recent *non-null* value across that
+breed's history wins (via the `last_non_null` macro,
+`transform/macros/last_non_null.sql`) — no redundancy, no data loss, and
+a null in the latest load doesn't clobber a real value from an earlier
+one. It also cleans and types the raw columns, and parses the API's
+free-text numeric fields (life span, weight, height — which mix plain
+ranges, decimals, and gender-split "Male: X-Y; Female: A-B" formats) into
+min/max columns via the `extract_min_number`/`extract_max_number` macros
 (`transform/macros/extract_number_range.sql`).
 
 ## Tests

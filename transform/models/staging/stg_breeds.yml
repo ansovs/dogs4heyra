@@ -3,9 +3,14 @@ version: 2
 models:
   - name: stg_breeds
     description: >
-      One row per breed, cleaned and typed from `raw.breeds`. Numeric
-      ranges (life span, weight, height) are parsed out of the API's
-      free-text fields into min/max columns.
+      One current-state row per breed. `raw.breeds` accumulates a full
+      snapshot per load (append), so a breed can span many raw rows over
+      time; this collapses them by taking, per column, the most recent
+      non-null value across all of that breed's history (see the
+      `last_non_null` macro) -- no redundancy, no data loss, latest
+      non-null value wins per field. Numeric ranges (life span, weight,
+      height) are parsed out of the API's free-text fields into min/max
+      columns.
     columns:
       - name: id
         description: Primary key, from The Dog API.
@@ -15,3 +20,11 @@ models:
       - name: breed_name
         data_tests:
           - not_null
+      - name: species_id
+        description: From The Dog API; not yet cross-referenced against anything.
+      - name: perfect_for
+        description: >
+          From The Dog API. No breed has had a non-null value for this in
+          any load so far, so it's currently always null here too -- kept
+          as a placeholder column, ready to populate once raw data for it
+          actually appears.

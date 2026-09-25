@@ -42,8 +42,9 @@ one). Set it via `DOG_API_KEY` env var or `--api-key` flag; get a free key
 at https://thedogapi.com. Tests do not need a real key — they mock HTTP
 calls with the `responses` library, so `pytest` works offline.
 
-BigQuery credentials go in `.dlt/secrets.toml` (gitignored; copy
-`.dlt/secrets.toml.example` and fill it in) — never committed.
+BigQuery credentials go in `.dlt/secrets.toml` (gitignored, never
+committed) — see `transform/profiles.yml` for the exact field names it
+expects.
 
 The venv is `.venv.nosync`, not `.venv`: this project lives under
 `~/Desktop`, which iCloud Drive sync may manage, and it re-hides pip's
@@ -67,8 +68,10 @@ Two entry points sharing one HTTP call:
   CSV from `--format`, falling back to the `-o/--output` extension.
 - `src/dogs4heyra/pipeline.py` — wraps `fetch_breeds()` in a dlt
   `@dlt.resource` (`breeds_resource`) and runs it through a dlt pipeline
-  (`write_disposition="replace"`, so each run overwrites the table rather
-  than appending). `main()` is the `dogs4heyra-load` CLI. dlt infers the
+  (`write_disposition="append"`, so raw accumulates a full snapshot per
+  run rather than being overwritten — the same breed id can span many
+  raw rows over time; `stg_breeds` in `transform/` is what collapses that
+  back down). `main()` is the `dogs4heyra-load` CLI. dlt infers the
   warehouse schema from the raw JSON automatically — no manual schema or
   flattening needed here, unlike the CSV path in `extract.py`.
 
@@ -96,6 +99,26 @@ from `BQ_PROJECT_ID`/`BQ_CLIENT_EMAIL`/`BQ_PRIVATE_KEY` env vars via
 Jinja `env_var()`), so it's committed; `scripts/print_bq_env.py` derives
 those three env vars from `.dlt/secrets.toml` so credentials are entered
 once, not duplicated between dlt and dbt config.
+
+`stg_breeds` collapses raw's full append history to one current-state row
+per breed. It does this in two stages, both in the same file: first a
+`merged` CTE computes, per column, `last_non_null(column)`
+(`transform/macros/last_non_null.sql` — a
+`LAST_VALUE(... IGNORE NULLS) OVER (PARTITION BY id ORDER BY
+_dlt_load_id ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)`
+window), which independently forward-fills each column across that
+breed's full history — deliberately per-column, not per-row, so a null
+in the latest load doesn't clobber a real value an earlier load had for
+some *other* field. `qualify row_number() ... = 1` then collapses the
+now-identical-per-breed rows down to one. Only after that does a second
+CTE do the renaming/type-parsing that was already there. `perfect_for` is
+added as a column but has never had a non-null value in any load so far
+— dlt hasn't materialized it into raw yet, so the model checks for its
+presence via `adapter.get_columns_in_relation()` at compile time and
+substitutes a literal `NULL` if it's absent, rather than hard-referencing
+a column that may not exist (which would error, not just return nulls).
+It'll start picking up real values automatically once raw actually has
+any.
 
 The API's numeric fields (life span, weight, height) are inconsistently
 formatted free text — plain ranges ("23-25"), decimals ("3.2-4.5"), and
