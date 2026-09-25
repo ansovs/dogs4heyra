@@ -56,7 +56,13 @@ renamed as (
         history,
         perfect_for,
         temperament,
-        split(trim(temperament), ', ') as temperament_list,
+        -- Source casing is inconsistent ("Alert" vs "alert" across
+        -- breeds) -- lowercase + trim each trait so the same trait
+        -- collapses to one value instead of two.
+        array(
+            select distinct trim(lower(trait))
+            from unnest(split(trim(temperament), ', ')) as trait
+        ) as temperament_list,
 
         life_span,
         safe_cast({{ extract_min_number('life_span') }} as int64) as life_span_min_years,
