@@ -1,0 +1,7 @@
+version: 2
+
+models:
+  - name: gold_breeds
+    description: >
+      Clean passthrough of silver_breeds for now -- placeholder for
+      aggregation/presentation logic to be added later.

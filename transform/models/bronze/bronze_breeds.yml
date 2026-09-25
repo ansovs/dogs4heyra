@@ -1,7 +1,7 @@
 version: 2
 
 models:
-  - name: stg_breeds
+  - name: bronze_breeds
     description: >
       One current-state row per breed. `raw.breeds` accumulates a full
       snapshot per load (append), so a breed can span many raw rows over

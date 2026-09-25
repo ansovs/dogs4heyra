@@ -7,7 +7,7 @@ dogs4heyra:
       type: bigquery
       method: service-account-json
       project: "{{ env_var('BQ_PROJECT_ID') }}"
-      dataset: dog_breeds_staging
+      dataset: dog_breeds_bronze
       location: US
       threads: 4
       keyfile_json:

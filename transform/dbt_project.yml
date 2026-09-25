@@ -14,5 +14,12 @@ clean-targets:
 
 models:
   dogs4heyra:
-    staging:
+    bronze:
+      +schema: dog_breeds_bronze
+      +materialized: view
+    silver:
+      +schema: dog_breeds_silver
+      +materialized: view
+    gold:
+      +schema: dog_breeds_gold
       +materialized: view

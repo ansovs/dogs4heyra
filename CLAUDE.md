@@ -70,8 +70,8 @@ Two entry points sharing one HTTP call:
   `@dlt.resource` (`breeds_resource`) and runs it through a dlt pipeline
   (`write_disposition="append"`, so raw accumulates a full snapshot per
   run rather than being overwritten — the same breed id can span many
-  raw rows over time; `stg_breeds` in `transform/` is what collapses that
-  back down). `main()` is the `dogs4heyra-load` CLI. dlt infers the
+  raw rows over time; `bronze_breeds` in `transform/` is what collapses
+  that back down). `main()` is the `dogs4heyra-load` CLI. dlt infers the
   warehouse schema from the raw JSON automatically — no manual schema or
   flattening needed here, unlike the CSV path in `extract.py`.
 
@@ -91,18 +91,32 @@ from a previous run, breaking the test non-deterministically.
 transform`, not activated via `cd`). It treats `raw.breeds`
 (`dog_breeds.breeds` in BigQuery — the table `dogs4heyra-load` writes) as
 a dbt **source**: read-only, never written to or dropped, so it stays the
-full historical/reference layer. `stg_breeds`
-(`transform/models/staging/stg_breeds.sql`) is a view built on top of it
-in a separate `dog_breeds_staging` dataset — safe to rebuild or drop
-without touching raw. `profiles.yml` has no secrets in it (values come
-from `BQ_PROJECT_ID`/`BQ_CLIENT_EMAIL`/`BQ_PRIVATE_KEY` env vars via
-Jinja `env_var()`), so it's committed; `scripts/print_bq_env.py` derives
-those three env vars from `.dlt/secrets.toml` so credentials are entered
-once, not duplicated between dlt and dbt config.
+full historical/reference layer. On top of that it's a medallion
+architecture, one dataset per layer:
 
-`stg_breeds` collapses raw's full append history to one current-state row
-per breed. It does this in two stages, both in the same file: first a
-`merged` CTE computes, per column, `last_non_null(column)`
+- **bronze** (`models/bronze/bronze_breeds.sql` → `dog_breeds_bronze`) —
+  raw's history collapsed to one current-state row per breed; cleaned,
+  typed, numeric ranges parsed. All the real logic lives here for now.
+- **silver** (`models/silver/silver_breeds.sql` → `dog_breeds_silver`) —
+  currently `select * from {{ ref('bronze_breeds') }}`, nothing else.
+  Placeholder for conformance/enrichment logic.
+- **gold** (`models/gold/gold_breeds.sql` → `dog_breeds_gold`) —
+  currently `select * from {{ ref('silver_breeds') }}`, nothing else.
+  Placeholder for aggregation/presentation logic.
+
+Each `+schema:` in `dbt_project.yml` names its dataset directly — that
+only works because `transform/macros/generate_schema_name.sql` overrides
+dbt's default behavior, which would otherwise concatenate the profile's
+target schema with `+schema` (e.g. `dog_breeds_bronze_bronze`) instead of
+using it as the literal dataset name. `profiles.yml` has no secrets in it
+(values come from `BQ_PROJECT_ID`/`BQ_CLIENT_EMAIL`/`BQ_PRIVATE_KEY` env
+vars via Jinja `env_var()`), so it's committed; `scripts/print_bq_env.py`
+derives those three env vars from `.dlt/secrets.toml` so credentials are
+entered once, not duplicated between dlt and dbt config.
+
+`bronze_breeds` collapses raw's full append history to one current-state
+row per breed. It does this in two stages, both in the same file: first
+a `merged` CTE computes, per column, `last_non_null(column)`
 (`transform/macros/last_non_null.sql` — a
 `LAST_VALUE(... IGNORE NULLS) OVER (PARTITION BY id ORDER BY
 _dlt_load_id ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)`

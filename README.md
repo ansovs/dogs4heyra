@@ -59,18 +59,23 @@ a JSON key.
 
 Each run **appends** a full snapshot rather than replacing the table, so
 `dog_breeds.breeds` accumulates history across runs — the same breed can
-span many rows over time. `stg_breeds` (below) is what collapses that back
-to one current row per breed. Override the destination/dataset with
+span many rows over time. `bronze_breeds` (below) is what collapses that
+back to one current row per breed. Override the destination/dataset with
 `dogs4heyra-load --destination duckdb --dataset dog_breeds` to load locally
 instead.
 
-## Transforming with dbt
+## Transforming with dbt (bronze / silver / gold)
 
 The `transform/` directory is a dbt-core project. It reads the raw
 `dog_breeds.breeds` table as a **source only** — dbt never writes to or
-drops it, so raw stays intact as the historical reference layer. Cleaned,
-typed models are materialized into a separate `dog_breeds_staging`
-dataset.
+drops it, so raw stays intact as the historical reference layer. Each
+medallion layer materializes into its own BigQuery dataset:
+
+| Layer | Model | Dataset | What |
+|---|---|---|---|
+| Bronze | `bronze_breeds` | `dog_breeds_bronze` | Raw history collapsed to one current-state row per breed; cleaned, typed, numeric ranges parsed |
+| Silver | `silver_breeds` | `dog_breeds_silver` | Clean passthrough of bronze for now — placeholder for future conformance/enrichment logic |
+| Gold | `gold_breeds` | `dog_breeds_gold` | Clean passthrough of silver for now — placeholder for future aggregation/presentation logic |
 
 ```bash
 pip install -e ".[transform]"
@@ -79,8 +84,8 @@ dbt run --project-dir transform --profiles-dir transform
 dbt test --project-dir transform --profiles-dir transform
 ```
 
-`stg_breeds` (`transform/models/staging/stg_breeds.sql`) collapses raw's
-full load history to **one current-state row per breed**: for each
+`bronze_breeds` (`transform/models/bronze/bronze_breeds.sql`) collapses
+raw's full load history to **one current-state row per breed**: for each
 column, independently, the most recent *non-null* value across that
 breed's history wins (via the `last_non_null` macro,
 `transform/macros/last_non_null.sql`) — no redundancy, no data loss, and

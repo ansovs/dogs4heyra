@@ -1,0 +1,7 @@
+version: 2
+
+models:
+  - name: silver_breeds
+    description: >
+      Clean passthrough of bronze_breeds for now -- placeholder for
+      conformance/enrichment logic to be added later.
