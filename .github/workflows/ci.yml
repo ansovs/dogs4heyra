@@ -20,3 +20,27 @@ jobs:
 
       - name: Run tests
         run: pytest
+
+  dbt:
+    # Only on pushes to main, not every branch/PR -- there's a single
+    # shared BigQuery warehouse (dog_breeds_bronze/_silver/_gold), not
+    # per-branch isolated datasets, so running this on every push would
+    # risk concurrent writes to the same tables from different branches.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      BQ_PROJECT_ID: ${{ secrets.BQ_PROJECT_ID }}
+      BQ_CLIENT_EMAIL: ${{ secrets.BQ_CLIENT_EMAIL }}
+      BQ_PRIVATE_KEY: ${{ secrets.BQ_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[transform]"
+
+      - name: dbt build (run + test)
+        run: dbt build --project-dir transform --profiles-dir transform
