@@ -139,3 +139,90 @@ BigQuery credentials are needed to run the test suite.
   warehouse, not per-branch isolated datasets — running it on every
   feature branch/PR would risk concurrent writes to the same
   bronze/silver/gold tables.
+
+## Scheduled daily load
+
+`.github/workflows/daily-load.yml` runs `dogs4heyra-load` (extract +
+append into raw) followed by `dbt build` (bronze → silver → gold) every
+day at 2am UTC, plus a `workflow_dispatch` trigger for on-demand manual
+runs (`gh workflow run daily-load.yml`). Needs `DOG_API_KEY` in addition
+to the `BQ_*` secrets the CI `dbt` job uses — same secrets, but exposed
+under two different naming conventions, since dlt
+(`DESTINATION__BIGQUERY__CREDENTIALS__*`) and dbt (`BQ_*` via
+`profiles.yml`'s `env_var()`) each expect their own env var names.
+
+## Example analysis
+
+Answered against `dog_breeds_gold.gold_breeds` (630 breeds, current as
+of the load this was run against).
+
+**Which breeds have the longest predicted life span?** ("Predicted"
+here = midpoint of `life_span_min_years`/`life_span_max_years`.) A
+five-way tie at 15 years: Silken Windhound, Koolie, Miniature Fox
+Terrier, Denmark Feist, and Rat Terrier — all small-to-medium breeds
+across different breed groups (Hound, Herding, Terrier, Scenthound).
+
+```sql
+select breed_name, breed_group, life_span_min_years, life_span_max_years,
+       round((life_span_min_years + life_span_max_years) / 2, 1) as predicted_life_span_years
+from dog_breeds_gold.gold_breeds
+where life_span_min_years is not null and life_span_max_years is not null
+order by predicted_life_span_years desc, life_span_max_years desc
+limit 10
+```
+
+**How are breeds distributed across weight classes?** Buckets are on
+`weight_metric_max_kg`: Small ≤10kg, Medium 10–25kg, Large 25–45kg,
+Giant >45kg.
+
+| Weight class | Breeds | % of total |
+|---|---|---|
+| Small (≤10kg) | 93 | 14.8% |
+| Medium (10–25kg) | 211 | 33.5% |
+| Large (25–45kg) | 241 | 38.3% |
+| Giant (>45kg) | 83 | 13.2% |
+| Unknown (no parseable weight) | 2 | 0.3% |
+
+Large is the single biggest bucket, but Medium+Large together account
+for ~72% of all breeds.
+
+**What are the top temperaments among family-friendly breeds
+(`good_for_families = true`)?** Worth being upfront about a bit of
+circularity here: `good_for_families` is itself defined by the presence
+of traits like `affectionate`/`friendly`/`gentle` (see
+`transform/models/silver/silver_breeds.yml`), so of course those top the
+list. The more informative view is what *else* commonly co-occurs:
+
+| Trait | Family-friendly breeds with it |
+|---|---|
+| intelligent | 359 |
+| loyal | 278 |
+| alert | 224 |
+| energetic | 184 |
+| courageous | 109 |
+| independent | 97 |
+| confident | 91 |
+| protective | 76 |
+
+`intelligent`, `loyal`, and `alert` are near-universal across the whole
+dataset (not just family-friendly breeds), so their presence here mostly
+reflects how common they are overall rather than a specific
+family-friendly signature — `energetic` (184) is the more genuinely
+interesting co-occurrence, since it cuts against a naive assumption that
+"family-friendly" implies "low-energy."
+
+**Is there a relationship between size and life span?** Yes — a
+moderate-to-strong negative correlation: **−0.61** between
+`weight_metric_max_kg` and `life_span_max_years` (**−0.67** using the
+midpoint of each range instead of just the max). It also shows up
+cleanly as a monotonic trend across the weight classes above:
+
+| Weight class | Avg predicted life span (years) |
+|---|---|
+| Small (≤10kg) | 13.4 |
+| Medium (10–25kg) | 13.0 |
+| Large (25–45kg) | 12.4 |
+| Giant (>45kg) | 10.8 |
+
+Bigger breeds predictably live shorter lives, in this dataset — a
+well-known pattern in dog biology, not a data artifact.
