@@ -20,8 +20,26 @@ models:
       - name: breed_name
         data_tests:
           - not_null
+          - unique:
+              # Not an error: "Caucasian Shepherd Dog" genuinely appears
+              # twice under different ids (269, 70) with near-identical
+              # descriptions -- looks like a real upstream data issue,
+              # not a bug here. Warn so it stays visible without
+              # blocking CI.
+              config:
+                severity: warn
+      - name: breed_group
+        data_tests:
+          - not_null
       - name: species_id
         description: From The Dog API; not yet cross-referenced against anything.
+        data_tests:
+          - not_null
+      - name: image_url
+        data_tests:
+          - not_null
+      - name: temperament_list
+        description: Lowercased, deduplicated, from the API's free-text temperament field.
       - name: perfect_for
         description: >
           From The Dog API. No breed has had a non-null value for this in
@@ -36,6 +54,11 @@ models:
           A first pass, not a validated classification -- description/
           history text was checked and is too sparse (50/631 breeds
           mention "family" at all) to key off of directly.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [true, false]
+                quote: false
       - name: good_for_apartments
         description: >
           Heuristic flag: true if temperament_list contains a low-energy
@@ -44,3 +67,8 @@ models:
           work-focused), and weight_metric_max_kg is 25kg or under
           (roughly the dataset's median). A first pass, not a validated
           classification.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [true, false]
+                quote: false

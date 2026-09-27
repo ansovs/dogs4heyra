@@ -11,3 +11,16 @@ models:
         data_tests:
           - unique
           - not_null
+          - relationships:
+              arguments:
+                to: ref('silver_breeds')
+                field: id
+      - name: breed_name
+        data_tests:
+          - not_null
+          - unique:
+              # Same known upstream duplicate as silver_breeds
+              # ("Caucasian Shepherd Dog", ids 269 and 70) -- warn, not
+              # error.
+              config:
+                severity: warn
