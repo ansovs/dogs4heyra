@@ -80,8 +80,7 @@ medallion layer materializes into its own BigQuery dataset:
 ```bash
 pip install -e ".[transform]"
 eval "$(.venv.nosync/bin/python scripts/print_bq_env.py)"   # reuses creds already in .dlt/secrets.toml
-dbt run --project-dir transform --profiles-dir transform
-dbt test --project-dir transform --profiles-dir transform
+dbt build --project-dir transform --profiles-dir transform   # run + test together
 ```
 
 `silver_breeds` (`transform/models/silver/silver_breeds.sql`) collapses
@@ -128,3 +127,15 @@ pytest
 
 The pipeline test loads sample data into a local DuckDB file — no
 BigQuery credentials are needed to run the test suite.
+
+## CI
+
+`.github/workflows/ci.yml` runs on every push:
+
+- **`test`** (all branches/PRs): `pytest`, no credentials needed.
+- **`dbt`** (pushes to `main` only): `dbt build` against the live
+  warehouse, using `BQ_PROJECT_ID`/`BQ_CLIENT_EMAIL`/`BQ_PRIVATE_KEY`
+  repo secrets. Restricted to `main` because there's one shared
+  warehouse, not per-branch isolated datasets — running it on every
+  feature branch/PR would risk concurrent writes to the same
+  bronze/silver/gold tables.

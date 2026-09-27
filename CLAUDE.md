@@ -29,8 +29,7 @@ dogs4heyra-load --destination duckdb --dataset dog_breeds  # load locally instea
 # Transform with dbt
 pip install -e ".[transform]"
 eval "$(.venv.nosync/bin/python scripts/print_bq_env.py)"  # BQ_* env vars from .dlt/secrets.toml
-dbt run --project-dir transform --profiles-dir transform
-dbt test --project-dir transform --profiles-dir transform
+dbt build --project-dir transform --profiles-dir transform  # run + test together
 
 # Tests
 pytest                              # full suite
@@ -196,3 +195,20 @@ includes `assert_gold_accounts_for_all_silver_rows`
 from both `gold_breeds` and `gold_breeds_excluded` (or appears in both)
 — the reconciliation check that guarantees filtering never silently
 drops a row.
+
+## CI
+
+`.github/workflows/ci.yml` has two jobs. `test` (pytest) runs on every
+push and PR, no credentials needed. `dbt` (`dbt build`, run+test
+combined) runs against the live warehouse using
+`BQ_PROJECT_ID`/`BQ_CLIENT_EMAIL`/`BQ_PRIVATE_KEY` repo secrets (set via
+`gh secret set`, sourced from the same `.dlt/secrets.toml` fields
+`scripts/print_bq_env.py` uses locally) — but only on pushes to `main`
+(`if: github.ref == 'refs/heads/main' && github.event_name == 'push'`),
+not feature branches or PRs. That gating is deliberate: there's one
+shared BigQuery warehouse, not per-branch isolated datasets, so running
+`dbt build` from multiple branches concurrently would mean concurrent
+writes to the same bronze/silver/gold tables. If per-branch dbt runs are
+ever needed, that requires either per-branch target datasets (e.g.
+suffix `+schema` with a branch/PR identifier) or serializing the job,
+not just removing the `if:` gate.
