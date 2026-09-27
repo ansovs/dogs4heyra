@@ -10,9 +10,17 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DOG_API_KEY: ${{ secrets.DOG_API_KEY }}
+      # dbt (profiles.yml) reads these three via env_var():
       BQ_PROJECT_ID: ${{ secrets.BQ_PROJECT_ID }}
       BQ_CLIENT_EMAIL: ${{ secrets.BQ_CLIENT_EMAIL }}
       BQ_PRIVATE_KEY: ${{ secrets.BQ_PRIVATE_KEY }}
+      # dlt (dogs4heyra-load) reads the same values under its own,
+      # differently-named env vars -- no separate secrets needed, just
+      # exposed under both naming conventions.
+      DESTINATION__BIGQUERY__LOCATION: "US"
+      DESTINATION__BIGQUERY__CREDENTIALS__PROJECT_ID: ${{ secrets.BQ_PROJECT_ID }}
+      DESTINATION__BIGQUERY__CREDENTIALS__CLIENT_EMAIL: ${{ secrets.BQ_CLIENT_EMAIL }}
+      DESTINATION__BIGQUERY__CREDENTIALS__PRIVATE_KEY: ${{ secrets.BQ_PRIVATE_KEY }}
     steps:
       - uses: actions/checkout@v4
 
