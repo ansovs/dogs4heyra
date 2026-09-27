@@ -1,0 +1,30 @@
+name: Daily load
+
+on:
+  schedule:
+    - cron: "0 2 * * *"  # 2am UTC, daily
+  workflow_dispatch: {}   # allows manual triggering from the Actions tab / gh CLI
+
+jobs:
+  load-and-transform:
+    runs-on: ubuntu-latest
+    env:
+      DOG_API_KEY: ${{ secrets.DOG_API_KEY }}
+      BQ_PROJECT_ID: ${{ secrets.BQ_PROJECT_ID }}
+      BQ_CLIENT_EMAIL: ${{ secrets.BQ_CLIENT_EMAIL }}
+      BQ_PRIVATE_KEY: ${{ secrets.BQ_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[warehouse,transform]"
+
+      - name: Extract + load breeds into BigQuery (raw)
+        run: dogs4heyra-load
+
+      - name: Transform (bronze -> silver -> gold)
+        run: dbt build --project-dir transform --profiles-dir transform
