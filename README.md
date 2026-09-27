@@ -59,7 +59,7 @@ a JSON key.
 
 Each run **appends** a full snapshot rather than replacing the table, so
 `dog_breeds.breeds` accumulates history across runs — the same breed can
-span many rows over time. `bronze_breeds` (below) is what collapses that
+span many rows over time. `silver_breeds` (below) is what collapses that
 back to one current row per breed. Override the destination/dataset with
 `dogs4heyra-load --destination duckdb --dataset dog_breeds` to load locally
 instead.
@@ -73,9 +73,9 @@ medallion layer materializes into its own BigQuery dataset:
 
 | Layer | Model | Dataset | What |
 |---|---|---|---|
-| Bronze | `bronze_breeds` | `dog_breeds_bronze` | Raw history collapsed to one current-state row per breed; cleaned, typed, numeric ranges parsed |
-| Silver | `silver_breeds` | `dog_breeds_silver` | Clean passthrough of bronze for now — placeholder for future conformance/enrichment logic |
-| Gold | `gold_breeds` | `dog_breeds_gold` | Clean passthrough of silver for now — placeholder for future aggregation/presentation logic |
+| Bronze | `bronze_breeds` | `dog_breeds_bronze` | Raw, untouched, full append history — one row per (breed, load), not deduplicated |
+| Silver | `silver_breeds` | `dog_breeds_silver` | Bronze's history collapsed to one current-state row per breed; cleaned, typed, numeric ranges parsed, plus heuristic `good_for_families`/`good_for_apartments` flags |
+| Gold | `gold_breeds` | `dog_breeds_gold` | Curated, dashboard-ready subset of silver, materialized as a table |
 
 ```bash
 pip install -e ".[transform]"
@@ -84,9 +84,9 @@ dbt run --project-dir transform --profiles-dir transform
 dbt test --project-dir transform --profiles-dir transform
 ```
 
-`bronze_breeds` (`transform/models/bronze/bronze_breeds.sql`) collapses
-raw's full load history to **one current-state row per breed**: for each
-column, independently, the most recent *non-null* value across that
+`silver_breeds` (`transform/models/silver/silver_breeds.sql`) collapses
+bronze's full load history to **one current-state row per breed**: for
+each column, independently, the most recent *non-null* value across that
 breed's history wins (via the `last_non_null` macro,
 `transform/macros/last_non_null.sql`) — no redundancy, no data loss, and
 a null in the latest load doesn't clobber a real value from an earlier
@@ -95,6 +95,19 @@ free-text numeric fields (life span, weight, height — which mix plain
 ranges, decimals, and gender-split "Male: X-Y; Female: A-B" formats) into
 min/max columns via the `extract_min_number`/`extract_max_number` macros
 (`transform/macros/extract_number_range.sql`).
+
+It also derives two heuristic suitability flags. Checked first: the raw
+`description`/`history` text is too sparse to key off of directly (only
+2/631 breeds literally mention "apartment", 50/631 mention "family"), so
+both flags key off `temperament_list` instead — `good_for_families` if it
+contains any of a curated set of family-friendly traits (affectionate,
+friendly, gentle, playful, devoted, patient, docile, good-natured,
+sweet-tempered, calm); `good_for_apartments` if it contains a low-energy
+trait (calm, docile, adaptable, gentle, easygoing), none of the
+high-energy traits (energetic, athletic, work-focused), and
+`weight_metric_max_kg` is 25kg or under (roughly the dataset's median).
+These are a first pass, not a validated classification — see
+`transform/models/silver/silver_breeds.yml` for the exact rule.
 
 ## Tests
 

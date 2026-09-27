@@ -70,7 +70,7 @@ Two entry points sharing one HTTP call:
   `@dlt.resource` (`breeds_resource`) and runs it through a dlt pipeline
   (`write_disposition="append"`, so raw accumulates a full snapshot per
   run rather than being overwritten — the same breed id can span many
-  raw rows over time; `bronze_breeds` in `transform/` is what collapses
+  raw rows over time; `silver_breeds` in `transform/` is what collapses
   that back down). `main()` is the `dogs4heyra-load` CLI. dlt infers the
   warehouse schema from the raw JSON automatically — no manual schema or
   flattening needed here, unlike the CSV path in `extract.py`.
@@ -95,14 +95,26 @@ full historical/reference layer. On top of that it's a medallion
 architecture, one dataset per layer:
 
 - **bronze** (`models/bronze/bronze_breeds.sql` → `dog_breeds_bronze`) —
-  raw's history collapsed to one current-state row per breed; cleaned,
-  typed, numeric ranges parsed. All the real logic lives here for now.
+  `select * from {{ source('raw', 'breeds') }}`, nothing else. Raw,
+  untouched, full append history — one row per (breed, load), not
+  deduplicated. Exists purely so raw is queryable through a model without
+  ever being written to.
 - **silver** (`models/silver/silver_breeds.sql` → `dog_breeds_silver`) —
-  currently `select * from {{ ref('bronze_breeds') }}`, nothing else.
-  Placeholder for conformance/enrichment logic.
-- **gold** (`models/gold/gold_breeds.sql` → `dog_breeds_gold`) —
-  currently `select * from {{ ref('silver_breeds') }}`, nothing else.
-  Placeholder for aggregation/presentation logic.
+  where the real logic lives: collapses bronze's history to one
+  current-state row per breed, cleans/types columns, parses numeric
+  ranges, and derives the `good_for_families`/`good_for_apartments` flags
+  (see below).
+- **gold** (`models/gold/gold_breeds.sql` → `dog_breeds_gold`) — curated,
+  dashboard-ready subset of silver's columns, materialized as a table
+  (silver/bronze are views) since it's meant for repeated BI queries.
+
+Don't assume bronze=raw-and-clean, silver=lightly-transformed the way an
+earlier iteration of this project had it — that had bronze doing all of
+silver's collapse/cleaning work while silver and gold were empty
+passthroughs. It's been corrected to the arrangement above; keep new
+logic in the layer it actually belongs to (raw mirror vs. current-state
+cleaning vs. presentation), not bunched into whichever layer happens to
+have the working code already.
 
 Each `+schema:` in `dbt_project.yml` names its dataset directly — that
 only works because `transform/macros/generate_schema_name.sql` overrides
@@ -114,9 +126,9 @@ vars via Jinja `env_var()`), so it's committed; `scripts/print_bq_env.py`
 derives those three env vars from `.dlt/secrets.toml` so credentials are
 entered once, not duplicated between dlt and dbt config.
 
-`bronze_breeds` collapses raw's full append history to one current-state
-row per breed. It does this in two stages, both in the same file: first
-a `merged` CTE computes, per column, `last_non_null(column)`
+`silver_breeds` collapses bronze's full append history to one
+current-state row per breed. It does this in three CTEs: first `merged`
+computes, per column, `last_non_null(column)`
 (`transform/macros/last_non_null.sql` — a
 `LAST_VALUE(... IGNORE NULLS) OVER (PARTITION BY id ORDER BY
 _dlt_load_id ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)`
@@ -124,15 +136,17 @@ window), which independently forward-fills each column across that
 breed's full history — deliberately per-column, not per-row, so a null
 in the latest load doesn't clobber a real value an earlier load had for
 some *other* field. `qualify row_number() ... = 1` then collapses the
-now-identical-per-breed rows down to one. Only after that does a second
-CTE do the renaming/type-parsing that was already there. `perfect_for` is
-added as a column but has never had a non-null value in any load so far
-— dlt hasn't materialized it into raw yet, so the model checks for its
+now-identical-per-breed rows down to one. `cleaned` does the
+renaming/type-parsing, and `tagged` (last) derives the suitability
+flags — kept last so they can reference `temperament_list` and
+`weight_metric_max_kg` from `cleaned` directly. `perfect_for` is added as
+a column but has never had a non-null value in any load so far — dlt
+hasn't materialized it into bronze yet, so the model checks for its
 presence via `adapter.get_columns_in_relation()` at compile time and
 substitutes a literal `NULL` if it's absent, rather than hard-referencing
 a column that may not exist (which would error, not just return nulls).
-It'll start picking up real values automatically once raw actually has
-any.
+It'll start picking up real values automatically once bronze actually
+has any.
 
 The API's numeric fields (life span, weight, height) are inconsistently
 formatted free text — plain ranges ("23-25"), decimals ("3.2-4.5"), and
@@ -143,3 +157,16 @@ extracting every number in the string and taking min/max, rather than
 assuming one fixed pattern — an earlier version used a single regex
 anchored to the string start, which silently returned NULL for most
 gender-split rows.
+
+`good_for_families`/`good_for_apartments` (in silver's `tagged` CTE) are
+keyword rules against `temperament_list`, not the raw `description`/
+`history` text — checked first, and only 2/631 breeds literally mention
+"apartment" there, 50/631 mention "family", too sparse to key off of
+directly. `good_for_apartments` also requires `weight_metric_max_kg <=
+25` (roughly the dataset's median) and the absence of high-energy traits
+(energetic/athletic/work-focused), not just presence of a calm trait —
+without the exclusion, a breed tagged both "calm" and "energetic" would
+otherwise qualify. Both are a first pass (documented as such in
+`transform/models/silver/silver_breeds.yml`), not a validated
+classification — expect to revisit the trait lists and the weight
+threshold as real usage surfaces edge cases.

@@ -3,5 +3,11 @@ version: 2
 models:
   - name: gold_breeds
     description: >
-      Clean passthrough of silver_breeds for now -- placeholder for
-      aggregation/presentation logic to be added later.
+      Dashboard/reporting-ready breed dimension: a curated subset of
+      silver_breeds, materialized as a table for consistent BI query
+      performance.
+    columns:
+      - name: breed_id
+        data_tests:
+          - unique
+          - not_null
