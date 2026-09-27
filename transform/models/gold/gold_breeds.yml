@@ -3,9 +3,12 @@ version: 2
 models:
   - name: gold_breeds
     description: >
-      Dashboard/reporting-ready breed dimension: a curated subset of
-      silver_breeds, materialized as a table for consistent BI query
-      performance.
+      Dashboard/reporting-ready breed dimension: a curated,
+      quality-filtered subset of silver_breeds, materialized as a table
+      for consistent BI query performance. Row-level filtering (via the
+      breed_quality_issues macro) means this is not 1:1 with
+      silver_breeds -- anything excluded, and why, is in
+      gold_breeds_excluded instead.
     columns:
       - name: breed_id
         data_tests:
@@ -18,9 +21,9 @@ models:
       - name: breed_name
         data_tests:
           - not_null
-          - unique:
-              # Same known upstream duplicate as silver_breeds
-              # ("Caucasian Shepherd Dog", ids 269 and 70) -- warn, not
-              # error.
-              config:
-                severity: warn
+          - unique
+          # Plain (error) unique, unlike silver_breeds' warn -- gold's
+          # row-level filter guarantees this by construction (the known
+          # "Caucasian Shepherd Dog" duplicate gets resolved before
+          # rows reach this table), so it failing here would mean the
+          # filter itself broke, not just an upstream data quirk.

@@ -1,0 +1,19 @@
+version: 2
+
+models:
+  - name: gold_breeds_excluded
+    description: >
+      Audit trail: every silver_breeds row that failed gold_breeds'
+      row-level quality filter, and why (see breed_quality_issues).
+      Empty today -- the only known issue (a duplicate breed_name) is
+      resolved by keeping one row, not by excluding both -- but exists
+      so a genuine future quality failure is visible here instead of
+      just missing from gold_breeds with no trace.
+    columns:
+      - name: id
+        data_tests:
+          - not_null
+          - unique
+      - name: exclusion_reasons
+        data_tests:
+          - not_null

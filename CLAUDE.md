@@ -105,8 +105,9 @@ architecture, one dataset per layer:
   ranges, and derives the `good_for_families`/`good_for_apartments` flags
   (see below).
 - **gold** (`models/gold/gold_breeds.sql` → `dog_breeds_gold`) — curated,
-  dashboard-ready subset of silver's columns, materialized as a table
-  (silver/bronze are views) since it's meant for repeated BI queries.
+  quality-**filtered** subset of silver's columns, materialized as a
+  table (silver/bronze are views) since it's meant for repeated BI
+  queries. Not 1:1 with silver — see below.
 
 Don't assume bronze=raw-and-clean, silver=lightly-transformed the way an
 earlier iteration of this project had it — that had bronze doing all of
@@ -170,3 +171,28 @@ otherwise qualify. Both are a first pass (documented as such in
 `transform/models/silver/silver_breeds.yml`), not a validated
 classification — expect to revisit the trait lists and the weight
 threshold as real usage surfaces edge cases.
+
+`gold_breeds` applies a row-level quality filter on top of silver — it
+is deliberately not 1:1 with `silver_breeds`. The filter logic lives in
+one place, `transform/macros/breed_quality_issues.sql`
+(`breed_quality_issues()`), returning an array of human-readable reason
+strings for a row (empty array = clean). Both `gold_breeds.sql`
+(`where array_length(breed_quality_issues()) = 0`) and
+`gold_breeds_excluded.sql` (`where array_length(...) > 0`) call the same
+macro, so the filter and its audit trail structurally cannot drift apart
+— update the macro, not either model, when the quality bar changes. The
+macro mirrors `transform/tests/assert_silver_breeds_reasonable_*.sql`
+and `assert_silver_breeds_temperament_not_empty.sql`; keep those in sync
+by hand if you touch the macro's conditions. One more check the macro
+does that has no standalone singular test: a `name_rank` column (row_number
+partitioned by `breed_name`, ordered by `id`) computed in both gold
+models flags anything but the first row per name as a duplicate — this
+is what resolves silver's known "Caucasian Shepherd Dog" (ids 269 and
+70) duplicate down to one row. Note `id` is a `STRING`, so this
+tie-break is lexicographic, not numeric — `"269"` sorts before `"70"`,
+which is why 269 is the one that ends up in `gold_breeds`. `dbt test`
+includes `assert_gold_accounts_for_all_silver_rows`
+(`transform/tests/`), which fails if any `silver_breeds.id` is missing
+from both `gold_breeds` and `gold_breeds_excluded` (or appears in both)
+— the reconciliation check that guarantees filtering never silently
+drops a row.

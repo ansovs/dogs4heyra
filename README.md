@@ -75,7 +75,7 @@ medallion layer materializes into its own BigQuery dataset:
 |---|---|---|---|
 | Bronze | `bronze_breeds` | `dog_breeds_bronze` | Raw, untouched, full append history — one row per (breed, load), not deduplicated |
 | Silver | `silver_breeds` | `dog_breeds_silver` | Bronze's history collapsed to one current-state row per breed; cleaned, typed, numeric ranges parsed, plus heuristic `good_for_families`/`good_for_apartments` flags |
-| Gold | `gold_breeds` | `dog_breeds_gold` | Curated, dashboard-ready subset of silver, materialized as a table |
+| Gold | `gold_breeds` | `dog_breeds_gold` | Curated, quality-**filtered** subset of silver, materialized as a table — the cleanest layer, meant for reporting |
 
 ```bash
 pip install -e ".[transform]"
@@ -108,6 +108,17 @@ high-energy traits (energetic, athletic, work-focused), and
 `weight_metric_max_kg` is 25kg or under (roughly the dataset's median).
 These are a first pass, not a validated classification — see
 `transform/models/silver/silver_breeds.yml` for the exact rule.
+
+`gold_breeds` (`transform/models/gold/gold_breeds.sql`) is **not** 1:1
+with silver — it applies a row-level quality filter (the
+`breed_quality_issues` macro, `transform/macros/breed_quality_issues.sql`):
+sane life span/weight/height ranges, a non-empty temperament list, and
+one row per `breed_name` (silver's known duplicate — "Caucasian Shepherd
+Dog" under two ids — gets resolved to one row here rather than shown
+twice on a dashboard). Nothing is silently dropped: every excluded row,
+and why, lands in `gold_breeds_excluded` instead, and
+`assert_gold_accounts_for_all_silver_rows` (a dbt test) fails if any
+silver row is missing from both `gold_breeds` and `gold_breeds_excluded`.
 
 ## Tests
 
