@@ -29,7 +29,8 @@ dogs4heyra-load --destination duckdb --dataset dog_breeds  # load locally instea
 # Transform with dbt
 pip install -e ".[transform]"
 eval "$(.venv.nosync/bin/python scripts/print_bq_env.py)"  # BQ_* env vars from .dlt/secrets.toml
-dbt build --project-dir transform --profiles-dir transform  # run + test together
+dbt build --project-dir transform --profiles-dir transform  # dev target (default) -- writes to *_dev datasets
+dbt build --project-dir transform --profiles-dir transform --target prod  # writes to the REAL datasets
 
 # Tests
 pytest                              # full suite
@@ -135,6 +136,22 @@ using it as the literal dataset name. `profiles.yml` has no secrets in it
 vars via Jinja `env_var()`), so it's committed; `scripts/print_bq_env.py`
 derives those three env vars from `.dlt/secrets.toml` so credentials are
 entered once, not duplicated between dlt and dbt config.
+
+`generate_schema_name.sql` also makes the dataset target-aware:
+`target.name == 'prod'` → the literal `+schema` name (the real datasets);
+any other target → `+schema` name + `_dev`. `profiles.yml` defines two
+targets, `dev` (the default) and `prod`, sharing the same connection —
+only the resulting dataset names differ. This means a bare `dbt build`
+(no `--target` flag) is always safe, anywhere, since it can never touch
+the real tables; `--target prod` is the explicit opt-in required to write
+to them. Only `.github/workflows/daily-load.yml` and CI's `dbt-prod` job
+(gated to pushes on `main`) pass `--target prod`. Sources aren't
+target-specific — a `dev`-target run still reads the real, current
+`raw.breeds`, so it's a genuine test against live data, just without
+writing into production. This exists specifically so CI can build/test
+on every push and PR (closing the "PRs don't build the models" gap) 
+without any risk of a feature branch's dbt run colliding with the
+scheduled loader or another branch's run on the same tables.
 
 `silver_breeds` collapses bronze's full append history to one
 current-state row per breed. It does this in three CTEs: first `merged`
@@ -291,17 +308,26 @@ fan-out at all.
 
 ## CI
 
-`.github/workflows/ci.yml` has two jobs. `test` (pytest) runs on every
-push and PR, no credentials needed. `dbt` (`dbt build`, run+test
-combined) runs against the live warehouse using
-`BQ_PROJECT_ID`/`BQ_CLIENT_EMAIL`/`BQ_PRIVATE_KEY` repo secrets (set via
-`gh secret set`, sourced from the same `.dlt/secrets.toml` fields
-`scripts/print_bq_env.py` uses locally) — but only on pushes to `main`
-(`if: github.ref == 'refs/heads/main' && github.event_name == 'push'`),
-not feature branches or PRs. That gating is deliberate: there's one
-shared BigQuery warehouse, not per-branch isolated datasets, so running
-`dbt build` from multiple branches concurrently would mean concurrent
-writes to the same bronze/silver/gold tables. If per-branch dbt runs are
-ever needed, that requires either per-branch target datasets (e.g.
-suffix `+schema` with a branch/PR identifier) or serializing the job,
-not just removing the `if:` gate.
+`.github/workflows/ci.yml` has three jobs, all using the
+`BQ_PROJECT_ID`/`BQ_CLIENT_EMAIL`/`BQ_PRIVATE_KEY` repo secrets where
+relevant (set via `gh secret set`, sourced from the same
+`.dlt/secrets.toml` fields `scripts/print_bq_env.py` uses locally):
+
+- `test` — `pytest`, every push and PR, no credentials needed.
+- `dbt-dev` — `dbt build --target dev`, every push and PR. Writes to
+  isolated `*_dev` datasets (see the `generate_schema_name.sql` note
+  above), so this is safe to run concurrently from any number of
+  branches without risking a collision.
+- `dbt-prod` — `dbt build --target prod`, only on pushes to `main`
+  (`if: github.ref == 'refs/heads/main' && github.event_name == 'push'`).
+  This is the one job that writes to the real datasets — keeps
+  production in sync with `main` on every merge, rather than only at the
+  next 2am scheduled load.
+
+This used to be a single `main`-only-gated job with no dev/prod
+distinction at all — every CI run against BigQuery wrote straight to the
+same tables the daily loader and any dashboard depend on, and PRs got no
+dbt validation at all. Fixed by making the dataset name target-aware
+(`generate_schema_name.sql`) rather than by adding per-branch datasets or
+serializing anything — the `dev` target is what makes running from any
+number of branches simultaneously safe now.

@@ -35,4 +35,4 @@ jobs:
         run: dogs4heyra-load
 
       - name: Transform (bronze -> silver -> gold)
-        run: dbt build --project-dir transform --profiles-dir transform
+        run: dbt build --project-dir transform --profiles-dir transform --target prod

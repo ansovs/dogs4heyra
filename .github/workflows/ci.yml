@@ -21,11 +21,35 @@ jobs:
       - name: Run tests
         run: pytest
 
-  dbt:
-    # Only on pushes to main, not every branch/PR -- there's a single
-    # shared BigQuery warehouse (dog_breeds_bronze/_silver/_gold), not
-    # per-branch isolated datasets, so running this on every push would
-    # risk concurrent writes to the same tables from different branches.
+  dbt-dev:
+    # Runs on every push and PR. Writes to isolated *_dev datasets (see
+    # transform/macros/generate_schema_name.sql) -- reads the same real
+    # raw data everything else does, but never writes to the tables a
+    # dashboard or the daily loader depend on, so this is safe from any
+    # branch without risking concurrent writes to production.
+    runs-on: ubuntu-latest
+    env:
+      BQ_PROJECT_ID: ${{ secrets.BQ_PROJECT_ID }}
+      BQ_CLIENT_EMAIL: ${{ secrets.BQ_CLIENT_EMAIL }}
+      BQ_PRIVATE_KEY: ${{ secrets.BQ_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[transform]"
+
+      - name: dbt build --target dev (run + test)
+        run: dbt build --project-dir transform --profiles-dir transform --target dev
+
+  dbt-prod:
+    # Only on pushes to main. Rebuilds the real production datasets
+    # (dog_breeds_bronze/_silver/_gold) so a merge to main keeps prod in
+    # sync with the latest model code immediately, rather than waiting
+    # for the next 2am scheduled load to pick it up.
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     env:
@@ -42,5 +66,5 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[transform]"
 
-      - name: dbt build (run + test)
-        run: dbt build --project-dir transform --profiles-dir transform
+      - name: dbt build --target prod (run + test)
+        run: dbt build --project-dir transform --profiles-dir transform --target prod

@@ -80,8 +80,20 @@ medallion layer materializes into its own BigQuery dataset:
 ```bash
 pip install -e ".[transform]"
 eval "$(.venv.nosync/bin/python scripts/print_bq_env.py)"   # reuses creds already in .dlt/secrets.toml
-dbt build --project-dir transform --profiles-dir transform   # run + test together
+dbt build --project-dir transform --profiles-dir transform   # run + test together, dev target (default)
 ```
+
+**`dev` vs `prod` targets:** the command above (no `--target` flag) writes
+to isolated `*_dev`-suffixed datasets (`dog_breeds_bronze_dev`, etc.) —
+safe to run from anywhere, anytime, including CI on every push/PR. It
+reads the same real, current raw data as `prod` does (sources aren't
+target-specific, only writes are), so it's a genuine test against live
+data, just without touching the tables a dashboard depends on. Add
+`--target prod` to write to the real `dog_breeds_bronze/_silver/_gold`
+datasets — only the scheduled daily-load workflow and CI's `dbt-prod`
+job (on pushes to `main`) do this; do it locally only if you deliberately
+want to update production ahead of the next scheduled run. See
+`transform/macros/generate_schema_name.sql` for how the split works.
 
 `silver_breeds` (`transform/models/silver/silver_breeds.sql`) collapses
 bronze's full load history to **one current-state row per breed**: for
@@ -168,24 +180,30 @@ BigQuery credentials are needed to run the test suite.
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every push:
+`.github/workflows/ci.yml` has three jobs, all using the
+`BQ_PROJECT_ID`/`BQ_CLIENT_EMAIL`/`BQ_PRIVATE_KEY` repo secrets where
+they touch BigQuery:
 
 - **`test`** (all branches/PRs): `pytest`, no credentials needed.
-- **`dbt`** (pushes to `main` only): `dbt build` against the live
-  warehouse, using `BQ_PROJECT_ID`/`BQ_CLIENT_EMAIL`/`BQ_PRIVATE_KEY`
-  repo secrets. Restricted to `main` because there's one shared
-  warehouse, not per-branch isolated datasets — running it on every
-  feature branch/PR would risk concurrent writes to the same
-  bronze/silver/gold tables.
+- **`dbt-dev`** (all branches/PRs): `dbt build --target dev` against the
+  live warehouse, writing to isolated `*_dev` datasets — safe from any
+  branch, since it never touches the tables a dashboard or the daily
+  loader depend on.
+- **`dbt-prod`** (pushes to `main` only): `dbt build --target prod`,
+  writing to the real datasets — keeps production in sync with `main`
+  immediately on merge, rather than waiting for the next 2am scheduled
+  load.
 
 ## Scheduled daily load
 
 `.github/workflows/daily-load.yml` runs `dogs4heyra-load` (extract +
-append into raw) followed by `dbt build` (bronze → silver → gold) every
-day at 2am UTC, plus a `workflow_dispatch` trigger for on-demand manual
-runs (`gh workflow run daily-load.yml`). Needs `DOG_API_KEY` in addition
-to the `BQ_*` secrets the CI `dbt` job uses — same secrets, but exposed
-under two different naming conventions, since dlt
+append into raw) followed by `dbt build --target prod` (bronze → silver
+→ gold, writing to the real datasets — this workflow is the one place
+`--target prod` is non-optional) every day at 2am UTC, plus a
+`workflow_dispatch` trigger for on-demand manual runs (`gh workflow run
+daily-load.yml`). Needs `DOG_API_KEY` in addition to the `BQ_*` secrets
+the CI `dbt-dev`/`dbt-prod` jobs use — same secrets, but exposed under
+two different naming conventions, since dlt
 (`DESTINATION__BIGQUERY__CREDENTIALS__*`) and dbt (`BQ_*` via
 `profiles.yml`'s `env_var()`) each expect their own env var names.
 

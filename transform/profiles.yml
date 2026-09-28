@@ -1,9 +1,30 @@
 # No secrets live in this file — values come from env vars at run time
 # (see scripts/print_bq_env.py). Safe to commit.
+#
+# `dev` is the default target on purpose -- a bare `dbt build` (no
+# --target flag) writes to isolated *_dev datasets, never the real
+# ones. Only `--target prod` (used solely by .github/workflows/
+# daily-load.yml) writes to the datasets a dashboard would actually
+# read from. See generate_schema_name.sql for how the split works --
+# both targets share the same connection/credentials, they just resolve
+# to different dataset names.
 dogs4heyra:
   target: dev
   outputs:
     dev:
+      type: bigquery
+      method: service-account-json
+      project: "{{ env_var('BQ_PROJECT_ID') }}"
+      dataset: dog_breeds_bronze
+      location: US
+      threads: 4
+      keyfile_json:
+        type: service_account
+        project_id: "{{ env_var('BQ_PROJECT_ID') }}"
+        client_email: "{{ env_var('BQ_CLIENT_EMAIL') }}"
+        private_key: "{{ env_var('BQ_PRIVATE_KEY') }}"
+        token_uri: https://oauth2.googleapis.com/token
+    prod:
       type: bigquery
       method: service-account-json
       project: "{{ env_var('BQ_PROJECT_ID') }}"
