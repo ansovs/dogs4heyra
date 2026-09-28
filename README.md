@@ -75,7 +75,7 @@ medallion layer materializes into its own BigQuery dataset:
 |---|---|---|---|
 | Bronze | `bronze_breeds` | `dog_breeds_bronze` | Raw, untouched, full append history — one row per (breed, load), not deduplicated |
 | Silver | `silver_breeds` | `dog_breeds_silver` | Bronze's history collapsed to one current-state row per breed; cleaned, typed, numeric ranges parsed, plus heuristic `good_for_families`/`good_for_apartments` flags |
-| Gold | `gold_breeds`, `gold_breeds_excluded`, `gold_weight_class_summary` | `dog_breeds_gold` | Curated, quality-**filtered** breed dimension (+ its audit trail) and a weight-class rollup, all materialized as tables — the cleanest layer, meant for reporting |
+| Gold | `gold_breeds`, `gold_breeds_excluded`, `gold_weight_class_summary`, `gold_breed_groups`, `gold_breed_temperaments` | `dog_breeds_gold` | Curated, quality-**filtered** breed dimension (+ its audit trail), a weight-class rollup, and two bridge tables for BI-friendly filtering, all materialized as tables — the cleanest layer, meant for reporting |
 
 ```bash
 pip install -e ".[transform]"
@@ -122,6 +122,22 @@ twice on a dashboard). Nothing is silently dropped: every excluded row,
 and why, lands in `gold_breeds_excluded` instead, and
 `assert_gold_accounts_for_all_silver_rows` (a dbt test) fails if any
 silver row is missing from both `gold_breeds` and `gold_breeds_excluded`.
+
+**`gold_breed_temperaments`** and **`gold_breed_groups`** are bridge
+tables — one row per (breed, trait) or (breed, group) pair — built so a
+BI tool can filter/group with a plain `WHERE`, no array handling needed.
+The reason they exist: `gold_breeds.temperament_list` is a BigQuery
+`REPEATED`/`ARRAY` field, and most no-code BI tools' native BigQuery
+connectors (confirmed for Looker Studio) don't handle those cleanly —
+they tend to silently flatten one row per array element, multiplying
+breed counts on any chart that touches the field directly.
+`gold_breed_groups` exists for a related but different reason:
+`breed_group` sometimes packs multiple memberships into one string
+("Sighthound & Pariah") or uses a regional/spelling variant of a single
+group ("Pastoral/Herding" — UK "Pastoral" vs US/AKC "Herding" naming for
+the same group). Splitting on `&`/`/`/`and` handles both cases the same
+way — a breed with a compound value shows up under every resulting
+group rather than one being picked and the rest lost.
 
 ## Tests
 

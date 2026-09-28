@@ -103,13 +103,16 @@ architecture, one dataset per layer:
   current-state row per breed, cleans/types columns, parses numeric
   ranges, and derives the `good_for_families`/`good_for_apartments` flags
   (see below).
-- **gold** (`models/gold/` → `dog_breeds_gold`) — three tables (silver/
+- **gold** (`models/gold/` → `dog_breeds_gold`) — five tables (silver/
   bronze are views; gold is materialized since it's meant for repeated
   BI queries): `gold_breeds`, a curated, quality-**filtered** subset of
   silver's columns (not 1:1 with silver — see below); `gold_breeds_excluded`,
-  its audit trail; and `gold_weight_class_summary`, a rollup built on
-  top of `gold_breeds` (breed count/avg weight/avg predicted life span
-  per weight class) — a gold-on-gold aggregate, not a 4th layer.
+  its audit trail; `gold_weight_class_summary`, a rollup built on top of
+  `gold_breeds` (breed count/avg weight/avg predicted life span per
+  weight class); and `gold_breed_temperaments`/`gold_breed_groups`,
+  bridge tables (one row per breed-trait or breed-group pair). All four
+  non-`gold_breeds` tables are gold-on-gold, built from `ref('gold_breeds')`
+  — not a 4th layer, just more models in the same one.
 
 Don't assume bronze=raw-and-clean, silver=lightly-transformed the way an
 earlier iteration of this project had it — that had bronze doing all of
@@ -226,6 +229,34 @@ column, it'll fail; see the column-level note in
 already-computed midpoint, not recomputing `(min + max) / 2` from
 scratch. Mathematically identical either way (averaging is linear), just
 without the duplicate expression.
+
+`gold_breed_temperaments` (`transform/models/gold/gold_breed_temperaments.sql`)
+is a plain `UNNEST(temperament_list)` — one row per (breed, trait).
+`gold_breed_groups` (`transform/models/gold/gold_breed_groups.sql`) is
+the same idea for `breed_group`, but that column isn't a clean list to
+begin with — it's a single string that sometimes packs multiple
+memberships ("Sighthound & Pariah") or uses a spelling/regional variant
+of one group ("Pastoral/Herding", "Scent Hound" vs "Scenthound"). The
+model splits on `&`, `/`, and `and` (case-insensitive, via
+`REGEXP_REPLACE(breed_group, r'(?i)\s*(?:&|/|\band\b)\s*', '|')` then
+`SPLIT(..., '|')` — BigQuery's `SPLIT()` doesn't take a regex directly,
+hence the two-step normalize-then-split), then runs each resulting token
+through `normalize_breed_group_token`
+(`transform/macros/normalize_breed_group_token.sql`) for the pure
+spelling variants that aren't actually compound (`"Mixed breed"` →
+`"Mixed"`, `"Spitz-type"` → `"Spitz"`, etc. — each mapping confirmed
+against the live distinct values before being added, not guessed). The
+splitting behavior is deliberate: a breed with a compound value ends up
+under *every* resulting group rather than one being picked as
+"canonical" and the rest discarded — correct for genuine dual
+membership, and harmless for the alternate-naming case (the breed's just
+filterable under either name). Verified live: e.g. `"Scent Hound"` (2
+breeds) + `"Scenthound"` (4 breeds) → 6 under `"Scenthound"` after
+normalization; `"Sighthound & Pariah"` correctly adds its breed to both
+`"Sighthound"` and `"Pariah"` counts, not a third bucket of its own.
+Both bridge tables are built from `ref('gold_breeds')`, so — like
+`gold_weight_class_summary` — they only ever reflect the already
+quality-filtered, deduplicated breed set.
 
 ## CI
 

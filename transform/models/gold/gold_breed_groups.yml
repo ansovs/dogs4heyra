@@ -1,0 +1,19 @@
+version: 2
+
+models:
+  - name: gold_breed_groups
+    description: >
+      Bridge table: one row per (breed, breed_group) membership. A breed
+      with a compound breed_group value (e.g. "Sighthound & Pariah")
+      appears once per resulting group, not collapsed to one. Built for
+      BI tools to filter/group on breed_group directly.
+    columns:
+      - name: breed_id
+        data_tests:
+          - not_null
+      - name: breed_name
+        data_tests:
+          - not_null
+      - name: breed_group
+        data_tests:
+          - not_null

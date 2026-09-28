@@ -1,0 +1,18 @@
+version: 2
+
+models:
+  - name: gold_breed_temperaments
+    description: >
+      Bridge table: one row per (breed, temperament trait) pair, flattened
+      out of gold_breeds.temperament_list. Built for BI tools that can't
+      handle BigQuery REPEATED/ARRAY fields natively (e.g. Looker Studio).
+    columns:
+      - name: breed_id
+        data_tests:
+          - not_null
+      - name: breed_name
+        data_tests:
+          - not_null
+      - name: trait
+        data_tests:
+          - not_null
