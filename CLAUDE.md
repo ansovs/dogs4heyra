@@ -103,10 +103,13 @@ architecture, one dataset per layer:
   current-state row per breed, cleans/types columns, parses numeric
   ranges, and derives the `good_for_families`/`good_for_apartments` flags
   (see below).
-- **gold** (`models/gold/gold_breeds.sql` → `dog_breeds_gold`) — curated,
-  quality-**filtered** subset of silver's columns, materialized as a
-  table (silver/bronze are views) since it's meant for repeated BI
-  queries. Not 1:1 with silver — see below.
+- **gold** (`models/gold/` → `dog_breeds_gold`) — three tables (silver/
+  bronze are views; gold is materialized since it's meant for repeated
+  BI queries): `gold_breeds`, a curated, quality-**filtered** subset of
+  silver's columns (not 1:1 with silver — see below); `gold_breeds_excluded`,
+  its audit trail; and `gold_weight_class_summary`, a rollup built on
+  top of `gold_breeds` (breed count/avg weight/avg predicted life span
+  per weight class) — a gold-on-gold aggregate, not a 4th layer.
 
 Don't assume bronze=raw-and-clean, silver=lightly-transformed the way an
 earlier iteration of this project had it — that had bronze doing all of
@@ -195,6 +198,17 @@ includes `assert_gold_accounts_for_all_silver_rows`
 from both `gold_breeds` and `gold_breeds_excluded` (or appears in both)
 — the reconciliation check that guarantees filtering never silently
 drops a row.
+
+`gold_weight_class_summary` reads from `ref('gold_breeds')`, not
+`silver_breeds` or the source — so it only ever reflects the already
+quality-filtered/deduplicated breed set, deliberately. Its weight
+buckets come from the `weight_class` macro
+(`transform/macros/weight_class.sql`), kept separate from
+`breed_quality_issues` since it's a display grouping, not a quality
+rule. `avg_weight_kg` is null for the "Unknown" bucket (2 breeds with no
+parseable weight at all) — don't add a blanket `not_null` test on that
+column, it'll fail; see the column-level note in
+`gold_weight_class_summary.yml` for why.
 
 ## CI
 

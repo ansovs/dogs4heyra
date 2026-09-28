@@ -75,7 +75,7 @@ medallion layer materializes into its own BigQuery dataset:
 |---|---|---|---|
 | Bronze | `bronze_breeds` | `dog_breeds_bronze` | Raw, untouched, full append history — one row per (breed, load), not deduplicated |
 | Silver | `silver_breeds` | `dog_breeds_silver` | Bronze's history collapsed to one current-state row per breed; cleaned, typed, numeric ranges parsed, plus heuristic `good_for_families`/`good_for_apartments` flags |
-| Gold | `gold_breeds` | `dog_breeds_gold` | Curated, quality-**filtered** subset of silver, materialized as a table — the cleanest layer, meant for reporting |
+| Gold | `gold_breeds`, `gold_breeds_excluded`, `gold_weight_class_summary` | `dog_breeds_gold` | Curated, quality-**filtered** breed dimension (+ its audit trail) and a weight-class rollup, all materialized as tables — the cleanest layer, meant for reporting |
 
 ```bash
 pip install -e ".[transform]"
@@ -173,18 +173,22 @@ limit 10
 
 **How are breeds distributed across weight classes?** Buckets are on
 `weight_metric_max_kg`: Small ≤10kg, Medium 10–25kg, Large 25–45kg,
-Giant >45kg.
+Giant >45kg. This one's now a real dbt model —
+[`gold_weight_class_summary`](transform/models/gold/gold_weight_class_summary.sql)
+— rather than a one-off query, so it's always current and queryable
+directly (e.g. by a dashboard):
 
-| Weight class | Breeds | % of total |
-|---|---|---|
-| Small (≤10kg) | 93 | 14.8% |
-| Medium (10–25kg) | 211 | 33.5% |
-| Large (25–45kg) | 241 | 38.3% |
-| Giant (>45kg) | 83 | 13.2% |
-| Unknown (no parseable weight) | 2 | 0.3% |
+| Weight class | Breeds | % of total | Avg weight (kg) | Avg predicted life span (yrs) |
+|---|---|---|---|---|
+| Small (≤10kg) | 93 | 14.8% | 5.3 | 13.4 |
+| Medium (10–25kg) | 211 | 33.5% | 16.0 | 13.0 |
+| Large (25–45kg) | 241 | 38.3% | 27.7 | 12.4 |
+| Giant (>45kg) | 83 | 13.2% | 51.9 | 10.8 |
+| Unknown (no parseable weight) | 2 | 0.3% | — | 12.5 |
 
 Large is the single biggest bucket, but Medium+Large together account
-for ~72% of all breeds.
+for ~72% of all breeds. (`avg_weight_kg` is null for Unknown — those 2
+breeds have no parseable weight to average at all.)
 
 **What are the top temperaments among family-friendly breeds
 (`good_for_families = true`)?** Worth being upfront about a bit of
@@ -215,14 +219,7 @@ interesting co-occurrence, since it cuts against a naive assumption that
 moderate-to-strong negative correlation: **−0.61** between
 `weight_metric_max_kg` and `life_span_max_years` (**−0.67** using the
 midpoint of each range instead of just the max). It also shows up
-cleanly as a monotonic trend across the weight classes above:
-
-| Weight class | Avg predicted life span (years) |
-|---|---|
-| Small (≤10kg) | 13.4 |
-| Medium (10–25kg) | 13.0 |
-| Large (25–45kg) | 12.4 |
-| Giant (>45kg) | 10.8 |
-
-Bigger breeds predictably live shorter lives, in this dataset — a
-well-known pattern in dog biology, not a data artifact.
+cleanly as a monotonic trend across `gold_weight_class_summary`'s
+`avg_life_span_years` column above (13.4 → 13.0 → 12.4 → 10.8 as weight
+class increases). Bigger breeds predictably live shorter lives, in this
+dataset — a well-known pattern in dog biology, not a data artifact.

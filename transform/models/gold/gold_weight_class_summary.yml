@@ -1,0 +1,31 @@
+version: 2
+
+models:
+  - name: gold_weight_class_summary
+    description: >
+      Breed count, average weight, and average predicted life span per
+      weight class (Small/Medium/Large/Giant, bucketed on
+      weight_metric_max_kg -- see the weight_class macro). One row per
+      class, ready to chart directly.
+    columns:
+      - name: weight_class
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - "Small (<=10kg)"
+                  - "Medium (10-25kg)"
+                  - "Large (25-45kg)"
+                  - "Giant (>45kg)"
+                  - "Unknown"
+      - name: num_breeds
+        data_tests:
+          - not_null
+      - name: avg_weight_kg
+        description: >
+          Null for the "Unknown" weight class -- those 2 breeds have no
+          parseable weight data at all, so there's nothing to average.
+      - name: avg_life_span_years
+        data_tests:
+          - not_null
