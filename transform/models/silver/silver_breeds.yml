@@ -40,6 +40,10 @@ models:
           - not_null
       - name: temperament_list
         description: Lowercased, deduplicated, from the API's free-text temperament field.
+      - name: life_span_avg_years
+        description: Midpoint of life_span_min_years/life_span_max_years ("predicted" life span).
+      - name: weight_metric_avg_kg
+        description: Midpoint of weight_metric_min_kg/weight_metric_max_kg.
       - name: perfect_for
         description: >
           From The Dog API. No breed has had a non-null value for this in

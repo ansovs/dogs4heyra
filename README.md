@@ -93,7 +93,11 @@ one. It also cleans and types the raw columns, and parses the API's
 free-text numeric fields (life span, weight, height — which mix plain
 ranges, decimals, and gender-split "Male: X-Y; Female: A-B" formats) into
 min/max columns via the `extract_min_number`/`extract_max_number` macros
-(`transform/macros/extract_number_range.sql`).
+(`transform/macros/extract_number_range.sql`). Two more columns,
+`life_span_avg_years`/`weight_metric_avg_kg`, are the midpoint of each
+breed's own min/max — a **per-breed** average, not to be confused with
+`gold_weight_class_summary` (below), which averages *across breeds
+within a weight class*.
 
 It also derives two heuristic suitability flags. Checked first: the raw
 `description`/`history` text is too sparse to key off of directly (only

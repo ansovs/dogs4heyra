@@ -67,11 +67,19 @@ cleaned as (
         life_span,
         safe_cast({{ extract_min_number('life_span') }} as int64) as life_span_min_years,
         safe_cast({{ extract_max_number('life_span') }} as int64) as life_span_max_years,
+        round((
+            safe_cast({{ extract_min_number('life_span') }} as int64)
+            + safe_cast({{ extract_max_number('life_span') }} as int64)
+        ) / 2, 1) as life_span_avg_years,
 
         weight_imperial,
         weight_metric,
         {{ extract_min_number('weight_metric') }} as weight_metric_min_kg,
         {{ extract_max_number('weight_metric') }} as weight_metric_max_kg,
+        round((
+            {{ extract_min_number('weight_metric') }}
+            + {{ extract_max_number('weight_metric') }}
+        ) / 2, 1) as weight_metric_avg_kg,
 
         height_imperial,
         height_metric,

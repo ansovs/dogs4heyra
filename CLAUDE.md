@@ -161,6 +161,18 @@ assuming one fixed pattern — an earlier version used a single regex
 anchored to the string start, which silently returned NULL for most
 gender-split rows.
 
+`life_span_avg_years`/`weight_metric_avg_kg` (also in `cleaned`) are the
+midpoint of each breed's *own* min/max — per-breed, computed once per
+row. Don't confuse these with `gold_weight_class_summary`'s
+`avg_weight_kg`/`avg_life_span_years`, which average *across breeds
+within a weight class* — a different aggregation entirely, that just
+happens to reuse these columns as its input (see below). Because
+BigQuery doesn't let a `SELECT` expression reference an alias defined
+earlier in the same `SELECT` list, these recompute
+`extract_min_number`/`extract_max_number` rather than referencing
+`life_span_min_years`/`life_span_max_years` etc. directly — mildly
+redundant, trivial at 631 rows.
+
 `good_for_families`/`good_for_apartments` (in silver's `tagged` CTE) are
 keyword rules against `temperament_list`, not the raw `description`/
 `history` text — checked first, and only 2/631 breeds literally mention
@@ -208,7 +220,12 @@ buckets come from the `weight_class` macro
 rule. `avg_weight_kg` is null for the "Unknown" bucket (2 breeds with no
 parseable weight at all) — don't add a blanket `not_null` test on that
 column, it'll fail; see the column-level note in
-`gold_weight_class_summary.yml` for why.
+`gold_weight_class_summary.yml` for why. Its `avg_weight_kg`/
+`avg_life_span_years` are `avg(gold_breeds.weight_metric_avg_kg)`/
+`avg(gold_breeds.life_span_avg_years)` — averaging each breed's own
+already-computed midpoint, not recomputing `(min + max) / 2` from
+scratch. Mathematically identical either way (averaging is linear), just
+without the duplicate expression.
 
 ## CI
 

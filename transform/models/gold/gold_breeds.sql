@@ -33,8 +33,10 @@ select
 
     life_span_min_years,
     life_span_max_years,
+    life_span_avg_years,
     weight_metric_min_kg,
     weight_metric_max_kg,
+    weight_metric_avg_kg,
     height_metric_min_cm,
     height_metric_max_cm,
 
