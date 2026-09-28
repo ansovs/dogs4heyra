@@ -46,6 +46,11 @@ Looker Studio: free, and it connects to BigQuery directly.
 
 ## Time constraints and what I skipped
 
-- **No dev/prod split.** The case asks for both targets, but I have one shared BigQuery warehouse, so `dbt build` runs on `main` only and PRs don't build the models. With more time: separate dev and prod datasets, with dbt running on PRs against dev.
-- **[Anything else you cut, e.g. incremental models, alerting on failed runs, dashboard polish, a README narrative, and why.]**
+¨- **[Anything else you cut, e.g. incremental models, alerting on failed runs, dashboard polish, a README narrative, and why.]**
 - **What I'd do next:** [1-3 concrete items, e.g. dev/prod targets, failure notifications, checking the heuristic flags against an outside source.]
+
+- Would work on the actual quality of data, naming etc. 
+- Looking and analyzing data before transforming, time was not on my side
+- Then I would work on deriving information from some of the unsused attributes (description/history) to create some other insight
+- Would clean a lot up
+- Made a lot of mistakes in order or things, that would needed to be better initially 
