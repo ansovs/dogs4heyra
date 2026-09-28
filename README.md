@@ -75,7 +75,7 @@ medallion layer materializes into its own BigQuery dataset:
 |---|---|---|---|
 | Bronze | `bronze_breeds` | `dog_breeds_bronze` | Raw, untouched, full append history — one row per (breed, load), not deduplicated |
 | Silver | `silver_breeds` | `dog_breeds_silver` | Bronze's history collapsed to one current-state row per breed; cleaned, typed, numeric ranges parsed, plus heuristic `good_for_families`/`good_for_apartments` flags |
-| Gold | `gold_breeds`, `gold_breeds_excluded`, `gold_weight_class_summary`, `gold_breed_groups`, `gold_breed_temperaments` | `dog_breeds_gold` | Curated, quality-**filtered** breed dimension (+ its audit trail), a weight-class rollup, and two bridge tables for BI-friendly filtering, all materialized as tables — the cleanest layer, meant for reporting |
+| Gold | `gold_breeds`, `gold_breeds_excluded`, `gold_weight_class_summary`, `gold_breed_groups`, `gold_breed_temperaments`, `gold_breed_attributes` | `dog_breeds_gold` | Curated, quality-**filtered** breed dimension (+ its audit trail), a weight-class rollup, two bridge tables, and one denormalized cross-filter-ready table, all materialized as tables — the cleanest layer, meant for reporting |
 
 ```bash
 pip install -e ".[transform]"
@@ -138,6 +138,24 @@ group ("Pastoral/Herding" — UK "Pastoral" vs US/AKC "Herding" naming for
 the same group). Splitting on `&`/`/`/`and` handles both cases the same
 way — a breed with a compound value shows up under every resulting
 group rather than one being picked and the rest lost.
+
+These two are still **separate tables**, though — which turns out to
+matter: if a "breeds by group" chart reads from `gold_breed_groups` and
+a "top temperaments" chart reads from `gold_breed_temperaments`,
+clicking a filter on one won't cross-filter the other in most BI tools
+(confirmed for Looker Studio), because they're different data sources
+even though both trace back to the same breeds. **`gold_breed_attributes`**
+is the fix: one denormalized table (breed × breed_group × trait, plus
+`weight_class` and every other gold_breeds column) meant to be the
+single data source every dashboard chart reads from, so cross-filtering
+works. The tradeoff: it's not 1:1 with breeds (a breed with 2 groups and
+6 traits contributes 12 rows), so **any count or percentage metric built
+on it must use distinct-breed aggregation** (`COUNT(DISTINCT breed_id)`
+— in Looker Studio, set the field's aggregation to "Count Distinct", not
+the default "Count"/"Sum") — verified this the hard way: a naive
+`COUNTIF(good_for_apartments)` filtered to the Toy group returned 59
+against a filtered total of 28 breeds. Use `gold_breeds` instead for
+breed-level scorecards that don't need to slice by group or trait.
 
 ## Tests
 

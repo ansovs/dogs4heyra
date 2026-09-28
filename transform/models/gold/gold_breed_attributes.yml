@@ -1,0 +1,32 @@
+version: 2
+
+models:
+  - name: gold_breed_attributes
+    description: >
+      One row per (breed, breed_group, temperament trait) combination --
+      every filterable dimension (group, trait, weight class, the two
+      suitability flags) in a single denormalized table, so a BI
+      dashboard's charts can all read from the same data source and
+      cross-filter each other correctly. NOT 1:1 with breeds: any
+      count/percentage metric built on this table (in Looker Studio or
+      elsewhere) must use distinct-breed aggregation (COUNT DISTINCT
+      breed_id), never plain COUNT/COUNTIF/SUM -- see the model's header
+      comment for a concrete example of this going wrong. Use gold_breeds
+      instead for breed-level scorecards that don't need to slice by
+      group or trait.
+    columns:
+      - name: breed_id
+        data_tests:
+          - not_null
+      - name: breed_name
+        data_tests:
+          - not_null
+      - name: breed_group
+        data_tests:
+          - not_null
+      - name: trait
+        data_tests:
+          - not_null
+      - name: weight_class
+        data_tests:
+          - not_null

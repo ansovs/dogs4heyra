@@ -103,16 +103,20 @@ architecture, one dataset per layer:
   current-state row per breed, cleans/types columns, parses numeric
   ranges, and derives the `good_for_families`/`good_for_apartments` flags
   (see below).
-- **gold** (`models/gold/` → `dog_breeds_gold`) — five tables (silver/
+- **gold** (`models/gold/` → `dog_breeds_gold`) — six tables (silver/
   bronze are views; gold is materialized since it's meant for repeated
   BI queries): `gold_breeds`, a curated, quality-**filtered** subset of
   silver's columns (not 1:1 with silver — see below); `gold_breeds_excluded`,
   its audit trail; `gold_weight_class_summary`, a rollup built on top of
   `gold_breeds` (breed count/avg weight/avg predicted life span per
-  weight class); and `gold_breed_temperaments`/`gold_breed_groups`,
-  bridge tables (one row per breed-trait or breed-group pair). All four
-  non-`gold_breeds` tables are gold-on-gold, built from `ref('gold_breeds')`
-  — not a 4th layer, just more models in the same one.
+  weight class); `gold_breed_temperaments`/`gold_breed_groups`, bridge
+  tables (one row per breed-trait or breed-group pair); and
+  `gold_breed_attributes`, a denormalized cross join of the two bridge
+  tables plus every other `gold_breeds` column, meant to be the single
+  data source a BI dashboard's charts all read from (see below for why).
+  All five non-`gold_breeds` tables are gold-on-gold, built from
+  `ref('gold_breeds')` — not a 4th layer, just more models in the same
+  one.
 
 Don't assume bronze=raw-and-clean, silver=lightly-transformed the way an
 earlier iteration of this project had it — that had bronze doing all of
@@ -257,6 +261,33 @@ normalization; `"Sighthound & Pariah"` correctly adds its breed to both
 Both bridge tables are built from `ref('gold_breeds')`, so — like
 `gold_weight_class_summary` — they only ever reflect the already
 quality-filtered, deduplicated breed set.
+
+`gold_breed_attributes` (`transform/models/gold/gold_breed_attributes.sql`)
+exists because the two bridge tables being *separate* turned out to
+matter for dashboard use: a chart reading `gold_breed_groups` and
+another reading `gold_breed_temperaments` don't cross-filter each other
+in most BI tools (confirmed for Looker Studio) even though both trace
+back to the same breeds, because the tools only cross-filter charts
+sharing one data source. This model joins `gold_breeds` to both bridge
+tables (breed_group × trait, a real cross join) and adds `weight_class`
+(via the `weight_class` macro, same as `gold_weight_class_summary`) so
+every filterable dimension lives on one row. The real cost: it's not
+1:1 with breeds (verified live — 630 breeds become 3,647 rows), so
+`COUNT(*)`/`COUNTIF(bool_col)`/`SUM(bool_col)` all overcount; only
+`COUNT(DISTINCT breed_id)` (or `COUNT(DISTINCT CASE WHEN ... THEN
+breed_id END)` for a conditional count) is correct. Caught this by
+making the mistake myself while verifying the model: `COUNTIF(good_for_apartments)`
+filtered to the Toy group returned 59 against a filtered total of 28
+breeds — more "true" rows than breeds exist, because each
+apartment-friendly Toy breed's flag got counted once per trait it has.
+`assert_gold_breed_attributes_breed_count_matches`
+(`transform/tests/`) checks that `COUNT(DISTINCT breed_id)` here still
+equals `gold_breeds`' row count — i.e. the join never drops or adds a
+breed, only multiplies its rows — but that test can't catch a chart
+built with the wrong aggregation; only reading the model's header
+comment (or this) prevents that. Point breed-level scorecards that don't
+need to slice by group/trait at `gold_breeds` instead, which has no
+fan-out at all.
 
 ## CI
 
