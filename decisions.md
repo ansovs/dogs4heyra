@@ -1,87 +1,51 @@
 # Decisions
 
-Brief log of the choices made building this project, grouped by area, not
-a step-by-step history. See CLAUDE.md/README.md for the resulting
-architecture in detail.
+Quick log of what I chose, why, and what I cut. Those are listed at the bottom.
 
-## Environment
+## Setup
 
-- Dev venv named `.venv.nosync`, not `.venv` — project sits under an
-  iCloud-synced `~/Desktop`, and iCloud was re-hiding pip's editable-install
-  file after every sync, silently breaking imports. `.nosync` is a naming
-  convention iCloud respects to skip a folder, chosen over moving the whole
-  project out of Desktop.
-- GitHub repo created **private**.
+- Venv is `.venv.nosync`, not `.venv`. The project lives under an iCloud-synced Desktop, and iCloud kept re-hiding pip's editable-install file, which silently broke imports. Renaming was easier than moving the project.
+- GitHub repo is private.
 
-## Extract & load
+## Loading
 
-- dlt → **BigQuery free sandbox tier**, over DuckDB/MotherDuck/Postgres
-  options, since it needs no billing account and the data stays queryable
-  by SQL tools.
-- Raw load uses `write_disposition="append"`, not `"replace"` — raw
-  accumulates full history across runs rather than being overwritten, so
-  there's something for the transform layer to collapse.
-- Scheduled via GitHub Actions cron, **2am UTC literally** (not
-  local/Copenhagen time — explicit choice to avoid DST-shift complexity),
-  plus a manual `workflow_dispatch` trigger.
+- **dlt into BigQuery sandbox.** It's free, needs no billing account, and the data is queryable with plain SQL.
+- **`append`, not `replace`.** Raw keeps the full history of every run, so the silver layer has something to collapse. Fine for this project would reconsider for larger projects / datasets.
+- **Daily run via GitHub Actions cron at 02:00 UTC**, literally UTC, not Copenhagen time. 
 
-## Warehouse architecture (bronze / silver / gold)
+## Warehouse: bronze / silver / gold
 
-- True medallion split, one BigQuery dataset per layer: bronze = untouched
-  raw mirror; silver = current-state, one row per breed; gold = curated,
-  quality-filtered, dashboard-ready.
-- Silver's history-collapse is **per-column, not per-row**: the most recent
-  non-null value per column wins independently, so a null in the latest
-  load can't clobber a real value an earlier load had for some other
-  field ("no redundancy, no data loss, latest wins").
-- `id` kept as `STRING`, not cast to `INT64` — it's an identifier, not a
-  quantity, and isn't numerically contiguous.
-- Free-text numeric fields (life span, weight, height) parsed by
-  extracting every number in the string and taking min/max, rather than a
-  fixed-position regex — needed to handle gender-split ("Male: X-Y;
-  Female: A-B") and decimal formats in the same column.
-- Temperament normalized (lowercased, trimmed, deduplicated) — casing
-  variants ("Alert" vs "alert") were inflating the distinct-trait count.
-- `good_for_families`/`good_for_apartments` are heuristic flags keyed off
-  `temperament_list`, not the raw `description`/`history` text — checked
-  first, and the free text is too sparse (2/631 breeds mention
-  "apartment", 50/631 "family") to be usable directly.
-- Gold is **not** a passthrough of silver: a row-level quality filter
-  excludes anything failing sanity checks or a duplicate `breed_name`.
-  Nothing is silently dropped — every excluded row (and why) is logged in
-  `gold_breeds_excluded`, with a test proving every silver row lands in
-  exactly one of the two.
-- `breed_group` synonyms/compounds ("Sighthound & Pariah", "Pastoral/
-  Herding") are **split into multiple group memberships**, not collapsed
-  to one canonical name — avoids a lossy judgment call and lets a breed
-  with genuine dual membership show up under both.
-- Added bridge tables (`gold_breed_temperaments`, `gold_breed_groups`) and
-  a single denormalized `gold_breed_attributes` table, because separate
-  bridge tables don't cross-filter each other in most BI tools — only
-  charts sharing one data source do.
+One BigQuery dataset per layer.
 
-## Data quality & testing
+- **Bronze:** untouched raw copy.
+- **Silver:** one row per breed, current state. The collapse is per column, so the latest non-null value wins for each field independently. A null in today's load can't wipe out a real value from an earlier run.
+- **Gold:** cleaned, filtered, ready for the dashboard. It is not just a copy of silver. Rows that fail sanity checks, or duplicate a breed name, are excluded, and every excluded row and its reason go into `gold_breeds_excluded`. A test checks that each silver row lands in exactly one of the two, so nothing disappears quietly.
 
-- dbt tests grounded in live data, not guessed thresholds (e.g. life span
-  range bounds set after checking the actual 5-18yr spread in the data).
-- Test severity: `error` where gold guarantees an invariant by
-  construction (e.g. `breed_name` uniqueness in gold); `warn` where it's a
-  known, accepted upstream data issue (the same uniqueness check in
-  silver, which deliberately doesn't dedupe).
-- Every quality-filter/dedup decision paired with a reconciliation test
-  (row counts must add up exactly across the split), not just spot-checked
-  by hand.
+Modeling choices:
+- `id` stays a string. It's an identifier, not a number.
+- Life span, weight and height are free text ("Male: X-Y; Female: A-B", decimals, etc.), so I pull out every number in the string and take min/max, instead of a fixed pattern that would break on the odd formats.
+- Temperaments are lowercased, trimmed and deduplicated. "Alert" vs "alert" was inflating the trait count.
+- `breed_group` values like "Sighthound & Pariah" are split into multiple memberships instead of forced into one, so a breed with two groups shows up under both.
+- Bridge tables for temperaments and groups, plus one wide `gold_breed_attributes` table, because separate tables don't cross-filter in most BI tools. Only charts on the same data source do.
+
+## Tests
+
+- Thresholds come from the actual data (e.g. life span bounds set after seeing the real 5-18 year spread), not guesses.
+- Failures that gold guarantees by construction are errors. Known upstream messiness, like duplicate breed names in silver, only warns.
+- Every filter or dedup step has a reconciliation test, so row counts add up exactly.
 
 ## CI/CD
 
-- Two separate GitHub Actions jobs: `pytest` on every push/PR (no
-  credentials needed); `dbt build` gated to `main`-only pushes, since
-  there's one shared BigQuery warehouse, not per-branch isolated datasets.
-- Secrets set via `gh secret set` piped from local credential files —
-  never typed into chat or committed.
+- Two jobs: `pytest` on every push and PR (no credentials needed), and `dbt build` on pushes to `main` only.
+- Secrets went in with `gh secret set` from local files. They were never typed into chat or committed.
 
-## Reporting / BI
+## Dashboard
 
-- Recommended **Looker Studio** (free, native BigQuery connector) over
-  Looker proper (enterprise LookML platform) — a personal project with one
-  dimension table doesn't need it.
+Looker Studio: free, and it connects to BigQuery directly.
+
+
+## Time constraints and what I skipped
+
+- **No dev/prod split.** The case asks for both targets, but I have one shared BigQuery warehouse, so `dbt build` runs on `main` only and PRs don't build the models. With more time: separate dev and prod datasets, with dbt running on PRs against dev.
+- **[Anything else you cut, e.g. incremental models, alerting on failed runs, dashboard polish, a README narrative, and why.]**
+- **What I'd do next:** [1-3 concrete items, e.g. dev/prod targets, failure notifications, checking the heuristic flags against an outside source.]
